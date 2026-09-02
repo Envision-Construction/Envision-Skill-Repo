@@ -1,7 +1,7 @@
 {
   "name": "credit",
   "displayName": "Credit Investment Analysis",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Professional credit analysis toolkit spanning leveraged finance, private credit, commercial real estate, and structured finance. 14 skills, plus credit-analyst and credit-committee agents. Lineage: jeickmeier/credit-investment-analysis-plugin v1.3.0 (MIT).",
   "author": {
     "name": "Jon Eickmeier"

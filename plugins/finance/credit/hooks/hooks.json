@@ -4,8 +4,8 @@
       {
         "hooks": [
           {
-            "type": "prompt",
-            "prompt": "Check each file in references/*.md for a next_review YAML frontmatter field. Compare each next_review date to today's date. If any file's next_review is in the past, warn the user listing the filename, next_review date, and days overdue in this format:\n\nStale reference data detected:\n  - {filename}: next_review was {date} ({N} days overdue)\n\nVerify these references against current market conditions before citing.\n\nIf all files are current (next_review is today or in the future), say nothing."
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/check-stale-references.sh\""
           }
         ]
       }

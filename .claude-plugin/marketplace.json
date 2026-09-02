@@ -11,7 +11,7 @@
       "source": "./plugins/finance/credit",
       "category": "finance",
       "description": "Credit analysis toolkit: leveraged finance, private credit, CRE, structured finance. 14 skills + 2 agents.",
-      "version": "2.0.1"
+      "version": "2.0.2"
     },
     {
       "name": "pe",
