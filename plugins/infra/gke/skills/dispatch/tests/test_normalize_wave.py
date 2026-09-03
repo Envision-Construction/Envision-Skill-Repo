@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for normalize_wave.py — validation, deduplication, cycle detection."""
+"""Tests for normalize_wave.py: validation, deduplication, cycle detection."""
 
 import sys
 from pathlib import Path

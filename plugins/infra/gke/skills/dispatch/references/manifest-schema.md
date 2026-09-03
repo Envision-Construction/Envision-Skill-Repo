@@ -1,7 +1,8 @@
 # Wave Manifest Schema
 
-The wave manifest is the single source of truth for a dispatch cycle. It is created by the
-framework, uploaded to GCS, and updated by the dispatcher as tasks complete.
+The wave manifest is the single source of truth for a dispatch cycle. `normalize_wave.py` creates
+it, `dispatch.py` uploads it to `gs://<bucket>/waves/<wave_id>/manifest.json`, and `collect.py`
+updates it as tasks finish.
 
 ## Schema
 
@@ -14,38 +15,46 @@ framework, uploaded to GCS, and updated by the dispatcher as tasks complete.
   "status": "pending | dispatching | running | completed | partial_failure | failed",
   "tasks": [
     {
-      "id": "string (required, unique within wave)",
+      "id": "string (required, unique within wave; becomes part of the Job name and branch name)",
       "index": "integer (auto-assigned, maps to JOB_COMPLETION_INDEX)",
-      "cmd": "string (required, shell command to execute)",
-      "image": "string (required, container image reference)",
+      "cmd": "string (required; '' for executor tasks that run a plan)",
+      "image": "string (required; 'claude-executor' in the name selects the executor path)",
       "inputs": {
-        "key": "value (arbitrary JSON, uploaded as /inputs/task_id.json)"
+        "repo_url": "executor: repo to clone",
+        "repo_branch": "executor: branch (default main)",
+        "git_sha": "executor: pin the checkout",
+        "plan_path": "executor: PLAN.md path inside the clone",
+        "plan_content": "executor: inline plan text (wins over plan_path)",
+        "max_budget_usd": "executor: --max-budget-usd (default 5; below ~2 fails on the context floor)",
+        "...": "anything else, uploaded as inputs/<task_id>.json"
       },
-      "outputs_pattern": "string (glob for files to collect from /outputs/)",
-      "resource_profile": "light | standard | heavy | gpu",
-      "timeout_seconds": "integer (default: 600)",
-      "retries": "integer (default: 2, maps to backoffLimit)",
-      "depends_on": ["task_id (optional, for intra-wave ordering)"],
+      "outputs_pattern": "string (informational; everything under /outputs is collected)",
+      "resource_profile": "light | standard | heavy | gpu | gpu_high",
+      "timeout_seconds": "integer (default 600; Job activeDeadlineSeconds = timeout + 60)",
+      "retries": "integer (default 2, maps to backoffLimit)",
+      "depends_on": ["task_id (same wave only; see below)"],
       "status": "pending | running | completed | failed | skipped",
       "result": {
         "exit_code": "integer",
+        "is_error": "boolean (executor envelope; forces failed even on exit 0)",
+        "cost_usd": "float | null (executor total_cost_usd)",
         "duration_seconds": "float",
         "output_path": "gs:// path to result.json",
         "stdout_path": "gs:// path to stdout.log",
         "stderr_path": "gs:// path to stderr.log",
-        "artifacts": ["gs:// paths to collected artifacts"],
+        "artifacts": ["gs:// paths under outputs/<task_id>/artifacts/"],
         "error": "string (if failed)"
       }
     }
   ],
   "config": {
-    "mode": "indexed-job | pod-pool | auto",
-    "parallelism_cap": "integer | null (null = cluster decides)",
-    "bucket": "gs:// bucket path",
-    "namespace": "string (default: gke-dispatch)",
-    "cluster": "string (default: from kubeconfig current-context)",
-    "node_pool": "string (optional, target specific node pool)",
-    "service_account": "string (K8s SA for workload identity)"
+    "mode": "indexed-job | auto (pod-pool is accepted and ignored: not implemented)",
+    "parallelism_cap": "integer | null (null = one pod per task)",
+    "bucket": "gs://gke-dispatch-claude-mcp-457317",
+    "namespace": "gke-dispatch",
+    "cluster": "kubeconfig context; default gke_claude-mcp-457317_us-central1_envision-compute; null = current context",
+    "node_pool": "unused",
+    "service_account": "gke-dispatch-worker"
   },
   "metrics": {
     "total_tasks": "integer",
@@ -53,50 +62,74 @@ framework, uploaded to GCS, and updated by the dispatcher as tasks complete.
     "failed": "integer",
     "pending": "integer",
     "wall_clock_seconds": "float",
-    "total_cpu_seconds": "float"
+    "total_cpu_seconds": "float (sum of task durations)",
+    "total_cost_usd": "float | null (sum of executor spend)"
   }
 }
 ```
 
-## Validation Rules
+## Validation rules
 
-1. `wave_id` must be unique across all dispatches — use `{framework}-{phase}-{wave}-{timestamp}` format
-2. `tasks[].id` must be unique within the wave
-3. `tasks[].image` must be pullable from the cluster (gcr.io/claude-mcp-457317/* or public)
-4. `tasks[].depends_on` references must resolve to other task IDs in the same wave
-5. `tasks[].depends_on` must not create cycles
-6. `config.bucket` must exist and be writable by the dispatch service account
-7. `config.parallelism_cap` if set must be ≥ 1
+`normalize_wave.py` enforces 1–6; `job_templates.build_job_yaml` enforces 7 (so `dispatch.py`
+rejects the manifest before any GCS write).
 
-## Idempotency Contract
+1. `wave_id` unique across all dispatches: `{framework}-{phase}-{wave}-{timestamp}`.
+2. `tasks[].id` unique within the wave. Lowercase, `[a-z0-9.-]`: it is embedded in a DNS-1123 Job
+   name (`gke-dispatch-<wave_id>-<task_id>`, truncated to 63 chars) and in the push branch.
+3. `tasks[].image` pullable from the cluster (Docker Hub, gcr.io, Artifact Registry).
+4. `tasks[].depends_on` resolve to task ids **in the same wave**; no cycles.
+5. `resource_profile` is one of the five above. `timeout_seconds` ≥ 1, `retries` ≥ 0.
+6. `config.bucket` writable by `gke-dispatch-sa`.
+7. **Wave homogeneity.** A wave is either all `claude-executor` tasks (one Job per task; each keeps
+   its own timeout/retries/profile) or all generic tasks sharing **one image and one
+   `resource_profile`** (one Indexed Job). Mixed waves are rejected with a message naming the split.
 
-The `wave_id` is the idempotency key. When `dispatch.py` receives a manifest with a `wave_id`
-that already exists in GCS:
+## Idempotency contract
 
-1. Download the existing manifest from `gs://{bucket}/waves/{wave_id}/manifest.json`
-2. Merge: keep `completed` task statuses, reset `failed` to `pending` (for retry)
-3. Dispatch only `pending` tasks
-4. Update the merged manifest in GCS
+`wave_id` is the idempotency key. When `dispatch.py` sees an existing
+`waves/<wave_id>/manifest.json`:
 
-This means calling `dispatch.py` multiple times with the same `wave_id` is always safe.
+1. Tasks `completed` there stay completed (result copied over); nothing re-runs.
+2. Tasks `failed` there reset to `pending` and re-dispatch.
+3. Only `pending` tasks become Job pods. Inside the pod, the `idempotent-check` init container
+   also skips if `outputs/<task_id>/result.json` already exists (belt and braces for a Job that
+   was applied twice).
 
-## Status Transitions
+Re-running `dispatch.py` with the same manifest is always safe. Re-running while the previous
+Job is still active re-applies identical YAML (`unchanged`); it does not spawn a second copy.
+
+## `depends_on` semantics
+
+Only executor tasks honor it, and only within one wave (same `wave_id`):
+
+- The `wait-deps` init container polls `outputs/<dep>/result.json` every 15 s and exits 1 if any
+  dependency finished with a non-zero `exit_code` (the task then fails without running).
+- On success it records `gke-dispatch/<wave_id>/<dep>` for each dependency, and the entrypoint
+  fetches and merges those branches into the clone before the plan runs.
+
+So a task that needs another task's *code* must sit in the **same wave** with `depends_on`.
+Waves are already sequential; a wave-2 task does not see wave-1 branches unless you merge them
+yourself between waves. Generic (Indexed Job) tasks ignore `depends_on`.
+
+## Status transitions
 
 ```
 Task:  pending → running → completed
-                        → failed (after retries exhausted)
-                        → skipped (dependency failed, cascade)
+                        → failed (retries exhausted, non-zero exit, or is_error=true)
 
-Wave:  pending → dispatching → running → completed (all tasks completed)
-                                       → partial_failure (some failed, some completed)
-                                       → failed (all tasks failed)
+Wave:  pending → dispatching → running → completed        (all tasks completed)
+                                       → partial_failure  (some failed or collect timed out with progress)
+                                       → failed           (all failed, or timed out with none completed)
 ```
 
-## Framework-Specific wave_id Conventions
+`collect.py --timeout` marks still-pending tasks by wall clock; the pods may still be running.
+Re-run `collect.py` later with the same manifest to pick them up.
 
-| Framework | wave_id format | Example |
-|-----------|---------------|---------|
-| GSD | `gsd-{phase}-{wave}-{timestamp}` | `gsd-p3-w2-1717900800` |
-| Ralph | `ralph-{loop_id}-{iteration}-{timestamp}` | `ralph-abc123-i5-1717900800` |
-| BMAD | `bmad-{task_group}-{timestamp}` | `bmad-refactor-1717900800` |
-| Custom | `{framework}-{identifier}-{timestamp}` | `myfw-batch42-1717900800` |
+## wave_id conventions
+
+| Framework | Format | Example |
+|---|---|---|
+| GSD (`run_roadmap.py`) | `<roadmap_id>-<phase_id>-w<n>` | `roadmap-1787033210-phase-91.1-w0` |
+| GSD (manual) | `gsd-p<phase>-w<wave>-<timestamp>` | `gsd-p3-w2-1717900800` |
+| Ralph | `ralph-<loop>-i<iteration>-<timestamp>` | `ralph-abc123-i5-1717900800` |
+| Custom | `<framework>-<identifier>-<timestamp>` | `gke-pilot-shell-reads-1787035524` |

@@ -80,7 +80,7 @@ fi || true
 TASK_CMD="${TASK_CMD:-}"
 PLAN_PATH="${PLAN_PATH:-}"
 PLAN_CONTENT=""
-MAX_TURNS="${MAX_TURNS:-25}"
+MAX_BUDGET_USD="${MAX_BUDGET_USD:-5}"
 
 resolve_plan_content() {
   if [ -n "$PLAN_PATH" ] && [ -f "$PLAN_PATH" ]; then
@@ -124,19 +124,31 @@ fi
 echo "=== GKE Dispatch Executor ==="
 echo "Wave: $WAVE_ID | Task: $TASK_ID"
 if [ -n "$USE_PROMPT_FILE" ]; then
-  echo "Mode: plan-file ($USE_PROMPT_FILE, $(wc -c < "$USE_PROMPT_FILE") bytes)"
+  echo "Mode: plan-file ($USE_PROMPT_FILE, $(wc -c < "$USE_PROMPT_FILE") bytes, budget USD $MAX_BUDGET_USD)"
 else
   echo "Command: ${TASK_CMD:0:200}..."
 fi
 echo "=== Starting execution ==="
 
 START=$(date +%s)
+CLAUDE_RESULT='{}'
 set +e
 if [ -n "$USE_PROMPT_FILE" ]; then
-  claude -p --dangerously-skip-permissions --max-turns "$MAX_TURNS" < "$USE_PROMPT_FILE" \
-    > /workspace/outputs/stdout.log 2> /workspace/outputs/stderr.log
+  # --max-turns no longer exists in the CLI (gone since at least 2.1.181); the budget cap is the bound.
+  # --output-format json yields a result envelope: is_error, subtype, total_cost_usd, num_turns, session_id.
+  claude -p --dangerously-skip-permissions --output-format json --max-budget-usd "$MAX_BUDGET_USD" < "$USE_PROMPT_FILE" \
+    > /workspace/outputs/claude.json 2> /workspace/outputs/stderr.log
   EXIT_CODE=$?
   rm -f "$USE_PROMPT_FILE"
+  # Output is one result object, or an array of events whose last type=="result" element is the
+  # envelope (both shapes seen in the field). Same jq as dispatch-worker.sh.
+  CLAUDE_RESULT=$(jq -c 'if type=="array" then (map(select(.type=="result"))|last) else . end' \
+    /workspace/outputs/claude.json 2>/dev/null)
+  if [ -z "$CLAUDE_RESULT" ] || [ "$CLAUDE_RESULT" = "null" ]; then CLAUDE_RESULT='{}'; fi
+  jq -r '.result // empty' <<<"$CLAUDE_RESULT" > /workspace/outputs/stdout.log 2>/dev/null || true
+  IS_ERROR=$(jq -r '.is_error // false' <<<"$CLAUDE_RESULT")
+  # A clean exit with is_error=true (budget exhausted, refusal, tool failure) is still a failure.
+  if [ "$EXIT_CODE" -eq 0 ] && [ "$IS_ERROR" = "true" ]; then EXIT_CODE=1; fi
 else
   eval "$TASK_CMD" > /workspace/outputs/stdout.log 2> /workspace/outputs/stderr.log
   EXIT_CODE=$?
@@ -161,11 +173,16 @@ cat > /workspace/outputs/result.json <<RESULT
   "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "git_commits": $(echo "$GIT_LOG" | jq -R -s 'split("\n") | map(select(length > 0))'),
   "repo_branch": "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '')",
-  "head_sha": "$(git rev-parse HEAD 2>/dev/null || echo '')"
+  "head_sha": "$(git rev-parse HEAD 2>/dev/null || echo '')",
+  "is_error": $(jq '.is_error // false' <<<"$CLAUDE_RESULT"),
+  "claude_subtype": $(jq '.subtype // null' <<<"$CLAUDE_RESULT"),
+  "total_cost_usd": $(jq '.total_cost_usd // null' <<<"$CLAUDE_RESULT"),
+  "num_turns": $(jq '.num_turns // null' <<<"$CLAUDE_RESULT"),
+  "session_id": $(jq '.session_id // null' <<<"$CLAUDE_RESULT")
 }
 RESULT
 
-# --- Upload to GCS (best-effort — fails gracefully if bucket doesn't exist) ---
+# --- Upload to GCS (best-effort: fails gracefully if bucket doesn't exist) ---
 
 if gsutil ls "${GCS_BUCKET}" 2>/dev/null; then
   gsutil cp /workspace/outputs/stdout.log "${OUTPUT_BASE}/stdout.log" || true
@@ -176,13 +193,13 @@ if gsutil ls "${GCS_BUCKET}" 2>/dev/null; then
     gsutil -m cp -r /workspace/outputs/* "${OUTPUT_BASE}/artifacts/" 2>/dev/null || true
   fi
 else
-  echo "GCS bucket ${GCS_BUCKET} not accessible — skipping upload" >&2
+  echo "GCS bucket ${GCS_BUCKET} not accessible: skipping upload" >&2
 fi
 
 # --- Push git changes ---
 
 if [ -d .git ] && [ -n "$(git status --porcelain)" ]; then
-  echo "Uncommitted changes detected — staging and pushing" >&2
+  echo "Uncommitted changes detected: staging and pushing" >&2
   git add -A
   git commit -m "[gke-dispatch] ${WAVE_ID}/${TASK_ID}: auto-commit remaining changes"
 fi

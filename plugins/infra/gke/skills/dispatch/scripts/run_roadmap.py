@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execute an entire ROADMAP sequentially — waves parallel on GKE, phases sequential.
+"""Execute an entire ROADMAP sequentially: waves parallel on GKE, phases sequential.
 
 Reads a roadmap definition (JSON or parsed from ROADMAP.md), executes each phase's
 waves in order, gates on verification between phases, and supports checkpoint resume.
@@ -26,8 +26,10 @@ SCRIPTS_DIR = Path(__file__).parent
 
 
 def run_script(script: str, args: list[str]) -> subprocess.CompletedProcess:
+    # sys.executable, not the literal "python3": PATH shims (uv, pyenv, the modern-python plugin)
+    # can intercept a bare python3 and refuse to run a script path.
     script_path = SCRIPTS_DIR / script
-    return run(["python3", str(script_path)] + args, check=False)
+    return run([sys.executable, str(script_path)] + args, check=False)
 
 
 # --- Roadmap Parsing ---
@@ -89,7 +91,7 @@ def parse_planning_dir(planning_dir: str) -> dict:
     if repo_info.get("repo_url"):
         print(f"Detected repo: {repo_info['repo_url']} @ {repo_info.get('repo_branch', 'main')}", file=sys.stderr)
     else:
-        print("WARNING: Could not detect git remote — pods will not clone a repo", file=sys.stderr)
+        print("WARNING: Could not detect git remote: pods will not clone a repo", file=sys.stderr)
 
     roadmap_text = roadmap_md.read_text()
     phases = []
@@ -106,7 +108,7 @@ def parse_planning_dir(planning_dir: str) -> dict:
         if not phase_dir.is_dir():
             continue
 
-        phase_num = re.match(r"(\d+)", phase_dir.name)
+        phase_num = re.match(r"(\d+(?:\.\d+)?)", phase_dir.name)
         if not phase_num:
             continue
         phase_num = phase_num.group(1)
@@ -120,12 +122,12 @@ def parse_planning_dir(planning_dir: str) -> dict:
         for plan_file in plan_files:
             plan_text = plan_file.read_text()
             stem = plan_file.stem.lower()
-            plan_name = re.sub(r"^(\d+-\d+)-plan$", r"phase-\1", stem)
+            plan_name = re.sub(r"^(\d+(?:\.\d+)?-\d+)-plan$", r"phase-\1", stem)
             if plan_name == stem:
                 plan_name = stem.replace("plan-", "").replace("plan", f"phase-{phase_num}")
 
-            files_modified = extract_files_modified(plan_text)
-            cmd = extract_plan_cmd(plan_text, plan_file)
+            fm = parse_frontmatter(plan_text)
+            files_modified = list(fm.get("files_modified") or []) or extract_files_modified(plan_text)
 
             if repo_root:
                 rel_plan_path = str(plan_file.resolve().relative_to(repo_root))
@@ -136,8 +138,10 @@ def parse_planning_dir(planning_dir: str) -> dict:
                 "id": plan_name,
                 "plan_path": rel_plan_path,
                 "plan_content": plan_text,
-                "cmd": cmd,
+                "cmd": "",
                 "files_modified": files_modified,
+                "wave": fm.get("wave"),
+                "depends_on": list(fm.get("depends_on") or []),
                 "image": "avireddy0/claude-executor:latest",
                 "resource_profile": "standard",
                 "repo_url": repo_info.get("repo_url", ""),
@@ -145,18 +149,21 @@ def parse_planning_dir(planning_dir: str) -> dict:
                 "git_sha": repo_info.get("git_sha", ""),
             })
 
-        waves = group_into_waves(plans)
+        waves = group_by_declared_waves(plans) or group_into_waves(plans)
 
         phase_title = extract_phase_title(roadmap_text, phase_num)
         phases.append({
             "id": f"phase-{phase_num}",
             "title": phase_title or f"Phase {phase_num}",
             "waves": waves,
-            "verification": {
-                "cmd": "python3 -c \"print('verification placeholder')\"",
-                "required": True,
-            },
+            # PLAN.md carries no verification command, so planning-dir mode has no gate.
+            # Author a roadmap JSON (references/multi-phase-milestone.md) when phases must gate.
+            "verification": {"cmd": None, "required": False},
         })
+
+    if phases:
+        print("WARNING: planning-dir mode runs phases WITHOUT a verification gate "
+              "(PLAN.md has no verification.cmd). Use --roadmap JSON to gate phases.", file=sys.stderr)
 
     return {
         "roadmap_id": f"roadmap-{int(time.time())}",
@@ -164,6 +171,66 @@ def parse_planning_dir(planning_dir: str) -> dict:
         "git_sha": repo_info.get("git_sha"),
         "phases": phases,
     }
+
+
+def _scalar(v: str):
+    v = v.strip().strip('"').strip("'")
+    if re.fullmatch(r"-?\d+", v):
+        return int(v)
+    return v
+
+
+def parse_frontmatter(text: str) -> dict:
+    """Read the YAML frontmatter keys gsd-core plans carry (wave, depends_on, files_modified).
+
+    Scalars, inline lists, and block lists at the top level; nested mappings are skipped.
+    No PyYAML dependency so the dispatcher runs on a bare python3.
+    """
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}
+    data: dict = {}
+    current_key = None
+    for raw in text[3:end].split("\n"):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        if raw[0] in " \t":
+            item = raw.strip()
+            if item.startswith("- ") and current_key is not None and isinstance(data.get(current_key), list):
+                data[current_key].append(_scalar(item[2:]))
+            else:
+                current_key = None  # nested mapping: its items belong to it, not to the top-level key
+            continue
+        key, sep, value = raw.partition(":")
+        if not sep:
+            continue
+        key, value = key.strip(), value.strip()
+        current_key = key
+        if value == "":
+            data[key] = []
+        elif value.startswith("[") and value.endswith("]"):
+            inner = value[1:-1].strip()
+            data[key] = [_scalar(v) for v in inner.split(",")] if inner else []
+        else:
+            data[key] = _scalar(value)
+    return data
+
+
+def group_by_declared_waves(plans: list[dict]) -> list[list[dict]] | None:
+    """Honor gsd-core's `wave:` frontmatter when every plan declares it.
+
+    Within one declared wave, plans that share files_modified are split into sequential
+    sub-waves (the same rule gsd-core's execute-phase applies). Returns None when any plan
+    lacks `wave`, so the caller falls back to overlap grouping.
+    """
+    if not plans or any(p.get("wave") is None for p in plans):
+        return None
+    waves: list[list[dict]] = []
+    for w in sorted({p["wave"] for p in plans}):
+        waves.extend(group_into_waves([p for p in plans if p["wave"] == w]))
+    return waves
 
 
 def extract_files_modified(plan_text: str) -> list[str]:
@@ -182,12 +249,8 @@ def extract_files_modified(plan_text: str) -> list[str]:
     return files
 
 
-def extract_plan_cmd(plan_text: str, plan_file: Path) -> str:
-    return ""
-
-
 def extract_phase_title(roadmap_text: str, phase_num: str) -> str | None:
-    pattern = rf"#+\s*Phase\s+{phase_num}\b[:\s—-]*(.*)"
+    pattern = rf"#+\s*Phase\s+{phase_num}\b[:\s\u2014\u2013-]*(.*)"  # colon, dash, en/em dash
     match = re.search(pattern, roadmap_text, re.IGNORECASE)
     if match:
         return match.group(1).strip().rstrip("|").strip() or f"Phase {phase_num}"
@@ -290,7 +353,7 @@ def execute_wave(wave_tasks: list[dict], wave_id: str, bucket: str,
                 "repo_url": t.get("repo_url", ""),
                 "repo_branch": t.get("repo_branch", "main"),
                 "git_sha": t.get("git_sha", ""),
-                "max_turns": str(t.get("max_turns", 25)),
+                "max_budget_usd": str(t.get("max_budget_usd", 5)),
             },
         }
         for t in wave_tasks
@@ -434,7 +497,7 @@ def execute_phase(phase: dict, phase_state: dict, state: dict, pi: int,
             wave_state["status"] = "failed"
             with _metrics_lock:
                 state["metrics"]["failed_tasks"] += wave_state["task_count"]
-            print(f"  Wave {wi+1} FAILED — halting phase", file=sys.stderr)
+            print(f"  Wave {wi+1} FAILED: halting phase", file=sys.stderr)
             return False
 
         wave_manifest_status = wave_result.get("status", "unknown")
@@ -472,7 +535,7 @@ def execute_phase(phase: dict, phase_state: dict, state: dict, pi: int,
 def execute_roadmap(roadmap: dict, state: dict, bucket: str,
                     namespace: str, dry_run: bool = False,
                     auto: bool = False) -> dict:
-    """Execute phases with maximum parallelism — independent phases run concurrently."""
+    """Execute phases with maximum parallelism: independent phases run concurrently."""
     start_time = time.time()
     state["status"] = "running"
     save_state(state, bucket, dry_run)
@@ -510,7 +573,7 @@ def execute_roadmap(roadmap: dict, state: dict, bucket: str,
             if not success and not dry_run:
                 state["status"] = "partial_failure"
                 save_state(state, bucket, dry_run)
-                print(f"\nPhase {phase['id']} FAILED — roadmap halted", file=sys.stderr)
+                print(f"\nPhase {phase['id']} FAILED: roadmap halted", file=sys.stderr)
                 print(f"Resume with: python3 run_roadmap.py --resume {bucket}/roadmaps/{state['roadmap_id']}/state.json",
                       file=sys.stderr)
                 break
@@ -547,7 +610,7 @@ def execute_roadmap(roadmap: dict, state: dict, bucket: str,
             if batch_failed and not dry_run:
                 state["status"] = "partial_failure"
                 save_state(state, bucket, dry_run)
-                print(f"\nParallel batch failed — roadmap halted", file=sys.stderr)
+                print(f"\nParallel batch failed: roadmap halted", file=sys.stderr)
                 break
 
         if not dry_run and not auto:
@@ -594,10 +657,10 @@ def print_summary(state: dict) -> None:
     for phase in state["phases"]:
         icon = {"completed": "+", "failed": "!", "running": "~", "pending": " ",
                 "verification_failed": "V"}.get(phase["status"], "?")
-        print(f"  [{icon}] {phase['id']}: {phase['title']} — {phase['status']}", file=sys.stderr)
+        print(f"  [{icon}] {phase['id']}: {phase['title']}: {phase['status']}", file=sys.stderr)
         for wave in phase["waves"]:
             wi_icon = {"completed": "+", "failed": "!", "pending": " "}.get(wave["status"], "?")
-            print(f"      [{wi_icon}] wave-{wave['wave_index']}: {wave['task_count']} tasks — {wave['status']}",
+            print(f"      [{wi_icon}] wave-{wave['wave_index']}: {wave['task_count']} tasks: {wave['status']}",
                   file=sys.stderr)
 
 
@@ -628,7 +691,7 @@ def main():
 
         roadmap_source = state.get("_roadmap_snapshot")
         if not roadmap_source:
-            print("State file missing _roadmap_snapshot — cannot resume without roadmap definition", file=sys.stderr)
+            print("State file missing _roadmap_snapshot: cannot resume without roadmap definition", file=sys.stderr)
             sys.exit(1)
 
         roadmap = roadmap_source

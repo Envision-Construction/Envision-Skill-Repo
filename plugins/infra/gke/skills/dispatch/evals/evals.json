@@ -1,0 +1,53 @@
+{
+  "skill_name": "gke-dispatch",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "I want to lint two directories of ~/GitHub/Envision-MCP in parallel on GKE instead of on my Mac: run `pip install ruff && ruff check gateway` and `pip install ruff && ruff check agent` in python:3.12-slim containers (each clones https://github.com/Envision-Construction/Envision-MCP.git first). Build the wave manifest and show me exactly what would be applied to the cluster, but do NOT create any Jobs or write anything to GCS, I just want to see the plan first. Also tell me which cluster and kubectl context this lands on and roughly how long before the pods actually start running.",
+      "expected_output": "A normalized manifest (2 tasks), the generated Indexed Job YAML from a clean dry-run, the envision-compute context named, and an honest note about spot-node scale-up latency.",
+      "files": [],
+      "expectations": [
+        "A wave manifest JSON file was produced by normalize_wave.py and contains exactly 2 tasks with image python:3.12-slim",
+        "The generated Kubernetes YAML (kind: Job, completionMode: Indexed) is present in the outputs",
+        "The answer names the kubectl context gke_claude-mcp-457317_us-central1_envision-compute or the cluster envision-compute as the dispatch target",
+        "The answer correctly describes where these generic Indexed Job pods schedule (the untainted on-demand default-pool, not the spot GPU pools) and gives a start-up estimate grounded in image pull or scale-up rather than a bare guess",
+        "commands_run.md shows no `kubectl apply` without --dry-run and no gsutil/gcloud storage cp or write to gs://",
+        "The answer does not claim that a pod-pool or pre-warmed mode exists"
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "Here is a GSD planning directory: /private/tmp/claude-501/-Users-avireddy-GitHub-claude-code-memory/03a30200-2f09-4f4e-9598-1dae143aa2ff/scratchpad/gke-dispatch-workspace/fixtures/planning-fixture/.planning . I want to run the remaining phases on GKE unattended overnight. Show me the execution plan (which phases run, in what order, which plan tasks run in parallel vs sequentially), what each plan task looks like as a dispatch task, where each task's commits will end up, what the verification gates between phases actually are, and the exact command to kick it off unattended plus how I resume if it dies. Do not dispatch anything.",
+      "expected_output": "run_roadmap.py --dry-run output honoring the plans' declared waves (41-03 after 41-01/41-02), phase 40 skipped as complete, branch naming, honest statement about the missing verification gate, --auto and --resume commands.",
+      "files": [
+        "/private/tmp/claude-501/-Users-avireddy-GitHub-claude-code-memory/03a30200-2f09-4f4e-9598-1dae143aa2ff/scratchpad/gke-dispatch-workspace/fixtures/planning-fixture/.planning"
+      ],
+      "expectations": [
+        "run_roadmap.py was invoked with --dry-run (or equivalent) against the fixture planning dir, per commands_run.md",
+        "Phase 40 is reported as skipped or already complete because it has a SUMMARY.md",
+        "Plan 41-03 is placed in a later wave than 41-01 and 41-02 (declared wave: 2), not in the same parallel wave",
+        "Phase 42 is reported as running after phase 41 (they share gateway/schemas/domain_schemas.py)",
+        "The answer states that task commits land on branches named gke-dispatch/<wave_id>/<task_id> and are not merged automatically",
+        "The answer says planning-dir mode has no real verification gate (no verification command in PLAN.md) rather than claiming tests gate each phase",
+        "The answer gives a run_roadmap.py --planning-dir ... --auto command and a --resume gs://.../roadmaps/<id>/state.json command",
+        "commands_run.md shows no non-dry-run dispatch, no kubectl apply, and no writes to gs://"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "This wave partially failed last night; the collected manifest is at /private/tmp/claude-501/-Users-avireddy-GitHub-claude-code-memory/03a30200-2f09-4f4e-9598-1dae143aa2ff/scratchpad/gke-dispatch-workspace/fixtures/partial-failure-manifest.json . What exactly do I run to retry only the failed tasks? Will the three completed tasks run again? Where do I look to find out why plan-33-03 failed? And plan-33-05 has depends_on pointing at plan-32-02, which ran in a different wave, is that fine? Don't actually re-dispatch, just tell me.",
+      "expected_output": "Re-run dispatch.py with the same manifest (idempotent merge keeps completed, resets failed), GCS paths for stderr/result, and a clear statement that cross-wave depends_on is invalid (same wave only).",
+      "files": [
+        "/private/tmp/claude-501/-Users-avireddy-GitHub-claude-code-memory/03a30200-2f09-4f4e-9598-1dae143aa2ff/scratchpad/gke-dispatch-workspace/fixtures/partial-failure-manifest.json"
+      ],
+      "expectations": [
+        "The answer says to re-run dispatch.py with the same manifest / wave_id, followed by collect.py",
+        "The answer states the three completed tasks will NOT re-run (idempotent merge keeps completed status)",
+        "The answer points to gs://gke-dispatch-claude-mcp-457317/waves/gsd-p33-w1-1787200000/outputs/plan-33-03/stderr.log or result.json (or the equivalent path) as the place to look",
+        "The answer states that depends_on across waves is invalid or unsupported (same-wave only) and that plan-33-05 must be fixed",
+        "The answer mentions that finished Jobs disappear from kubectl after an hour or that GCS is the record (optional but discriminating)",
+        "commands_run.md shows no dispatch.py run without --dry-run, no kubectl apply, and no writes to gs://"
+      ]
+    }
+  ]
+}

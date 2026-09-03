@@ -1,307 +1,232 @@
 ---
 name: GKE Dispatch
 description: >
-  Dispatch parallel task waves to GKE (claude-mcp-457317). Idempotent, checkpoint-based.
-  Use when 2+ independent tasks need parallel execution on GKE — from any framework.
+  Run 2+ independent tasks in parallel on GKE cluster envision-compute (claude-mcp-457317) as
+  Kubernetes Jobs: generic container commands, or Claude Code plan executions in the
+  claude-executor image, with results in GCS and idempotent replay keyed by wave id. Use it
+  whenever work should leave the Mac and fan out: "dispatch to GKE", "run these plans on the
+  cluster", "offload this wave", executing a GSD phase or a whole roadmap off-machine, retrying a
+  partially failed wave, or any question about the gke-dispatch namespace, the dispatch bucket,
+  the executor image, or wave manifests. Also use it when someone wants parallel execution of
+  containerizable tasks and has not named a venue. Not for Envision-MCP's dispatch_heavy_job
+  skill catalog, Kueue/GPU model serving (gke:ai-platform), or agent sandboxes (gke:agent-runtime).
 ---
 
 # GKE Dispatch
 
-Dispatch parallel work units to GKE with zero-drop guarantees and idempotent replay.
+Turn a list of independent tasks into one wave, run the wave as Kubernetes Jobs on
+`envision-compute`, and collect every task's result from GCS. Re-running a wave never repeats a
+task that already finished. Scripts live in `${CLAUDE_PLUGIN_ROOT}/skills/dispatch/scripts/`;
+run them from that directory or with absolute paths.
 
-## Architecture
+## Ground truth (verified live 2026-09-03)
 
-```
-Framework (GSD/Ralph/any)
-  │
-  ├─ normalize_wave() ─→ Wave Manifest (JSON)
-  │
-  ├─ dispatch_wave() ──→ GKE cluster (claude-mcp-457317)
-  │   ├─ Upload inputs to GCS
-  │   ├─ Check prior completions (idempotent guard)
-  │   ├─ Create K8s Indexed Job (or dispatch to pod pool)
-  │   └─ Sidecar log-shipper captures stdout/stderr to GCS
-  │
-  ├─ poll_wave() ─────→ Watch for task completions
-  │   ├─ GCS result.json per task index
-  │   └─ Manifest status updates (completed/failed/pending)
-  │
-  └─ collect_results() → Aggregated results + artifacts back to framework
-```
+| Fact | Value |
+|---|---|
+| Cluster | `envision-compute`, `us-central1`, project `claude-mcp-457317` |
+| kubeconfig context | `gke_claude-mcp-457317_us-central1_envision-compute` (scripts pin it; your current context is irrelevant) |
+| Namespace / KSA | `gke-dispatch` / `gke-dispatch-worker` (Workload Identity to `gke-dispatch-sa@…`) |
+| Bucket | `gs://gke-dispatch-claude-mcp-457317/waves/<wave_id>/` (30-day lifecycle) |
+| Executor image | `avireddy0/claude-executor:latest`, last pushed **2026-05-08**; rebuild needed before the next executor wave (`references/executor-image.md`) |
+| Job TTL | 1 hour after finish; `kubectl get jobs` is usually empty. GCS holds the record. |
+| Usage to date | Three pilot waves on 2026-08-18; no roadmap has run end to end |
 
-## Lossless Guarantees
+The only other clusters in the project (`envision-delta-gke`, `envision-cockpit-uswest1`) lack the
+namespace; a hand-typed `kubectl` on the wrong context fails with `namespaces "gke-dispatch" not
+found`.
 
-| Guarantee | Mechanism |
-|-----------|-----------|
-| No dropped tasks | Manifest tracks every task; orphan detector flags any task without a terminal state |
-| Full output capture | Sidecar ships stdout/stderr/artifacts to GCS; Cloud Logging as backup |
-| Idempotent replay | Each task checks `result.json` before executing; completed tasks skip automatically |
-| Atomic results | Write to `.tmp` then `gsutil mv` — no partial result files |
-| Crash recovery | Manifest persists in GCS; re-run `dispatch_wave()` with same `wave_id` resumes from checkpoint |
-
-## Quick Start
-
-### 1. Normalize the wave
-
-Convert framework-specific task lists into the universal wave manifest:
+## Preflight
 
 ```bash
-python3 scripts/normalize_wave.py \
-  --wave-id "phase-3-wave-2" \
-  --tasks '[{"id": "task-0", "cmd": "python analyze.py --input data.csv", "image": "gcr.io/claude-mcp-457317/analyst:latest"}]' \
-  --output /tmp/wave-manifest.json
+kubectl config get-contexts -o name | grep envision-compute
+gcloud storage ls gs://gke-dispatch-claude-mcp-457317/waves/ | tail -3
 ```
 
-Or build programmatically — see [references/manifest-schema.md](references/manifest-schema.md).
+Context missing: `references/cluster-setup.md` (first error entry). Both present: proceed.
 
-### 2. Dispatch
+## Two task kinds
+
+| | Generic container task | Claude executor task |
+|---|---|---|
+| `image` | any image with `sh` (python3 is **not** required) | `avireddy0/claude-executor:*` |
+| `cmd` | the shell command | `""`; the plan comes from `inputs` |
+| Wave rule | one image and one `resource_profile` per wave (one Indexed Job) | mixed profiles fine (one Job per task); never mix with generic tasks |
+| Inputs | anything, lands in `inputs/<task>.json` | `repo_url`, `repo_branch`, `plan_path` or `plan_content`, `max_budget_usd` (default 5) |
+| Output | `stdout.log`, `stderr.log`, `result.json`, files written to `/outputs` → `artifacts/` | same, plus commits pushed to branch `gke-dispatch/<wave_id>/<task_id>`; nothing merges by itself |
+| `depends_on` | ignored | same wave only; blocks until deps succeed, then merges their branches |
+
+`dispatch.py` rejects a wave that mixes the two kinds, or generic tasks with two images or two
+profiles, before writing anything. Split into separate waves.
+
+## Quick start
+
+1. Normalize the task list into a manifest (validates ids, profiles, dependency cycles):
 
 ```bash
-python3 scripts/dispatch.py \
-  --manifest /tmp/wave-manifest.json \
-  --bucket gs://gke-dispatch-claude-mcp-457317 \
-  --namespace gke-dispatch \
-  --mode auto
+cd ${CLAUDE_PLUGIN_ROOT}/skills/dispatch/scripts
+python3 normalize_wave.py --wave-id "lint-sweep-$(date +%s)" --framework custom \
+  --tasks '[
+    {"id":"ruff-src","cmd":"apt-get install -y -q git >/dev/null && git clone --depth 1 https://github.com/pallets/click /w && pip install -q ruff && ruff check /w/src",
+     "image":"python:3.12-slim","resource_profile":"light","timeout_seconds":600,"retries":0},
+    {"id":"ruff-tests","cmd":"apt-get install -y -q git >/dev/null && git clone --depth 1 https://github.com/pallets/click /w && pip install -q ruff && ruff check /w/tests",
+     "image":"python:3.12-slim","resource_profile":"light","timeout_seconds":600,"retries":0}
+  ]' --output /tmp/wave.json
 ```
 
-`--mode auto` selects K8s Indexed Job (default) or pod pool (if wave frequency > 1/min).
+(`python:3.12-slim` ships without `git`; the `apt-get` is what makes the clone work.)
 
-### 3. Poll and collect
+2. Dry-run. Prints the Job YAML and the exact `kubectl --context … apply` it would run; writes
+   nothing to GCS or the cluster:
 
 ```bash
-python3 scripts/collect.py \
-  --manifest /tmp/wave-manifest.json \
-  --bucket gs://gke-dispatch-claude-mcp-457317 \
-  --timeout 900
+python3 dispatch.py --manifest /tmp/wave.json --dry-run
 ```
 
-Returns aggregated JSON with per-task status, outputs, logs, and artifact paths.
-
-## Framework Integration
-
-### Automatic detection
-
-Any framework that produces a wave manifest can use this as its dispatch backend.
-
-### GSD integration
-
-GSD's `execute-phase` groups plans into waves by `files_modified` overlap analysis.
-Map each independent plan to a wave task:
-
-```python
-for plan in wave.independent_plans:
-    tasks.append({
-        "id": plan.name,
-        "cmd": f"claude-code --plan {plan.path} --worktree {plan.branch}",
-        "image": "avireddy0/claude-executor:latest",
-        "inputs": {"plan_path": plan.path, "git_sha": current_sha},
-        "resource_profile": "standard"
-    })
-```
-
-### Generic framework interface
-
-```python
-manifest = {
-    "wave_id": "unique-wave-identifier",
-    "git_sha": "abc123",
-    "tasks": [
-        {
-            "id": "task-0",
-            "cmd": "your-command --args",
-            "image": "your-image:tag",
-            "inputs": {},
-            "outputs_pattern": "**/*.json",
-            "resource_profile": "standard",
-            "timeout_seconds": 600,
-            "retries": 2
-        }
-    ],
-    "config": {
-        "mode": "auto",
-        "parallelism_cap": null,
-        "bucket": "gs://gke-dispatch-claude-mcp-457317"
-    }
-}
-```
-
-## Compute Modes
-
-| Mode | Best for | Cold start | Mechanism |
-|------|----------|------------|-----------|
-| `indexed-job` | < 50 tasks, > 30s each, infrequent | 3-8s (warm node) | K8s Indexed Job, `completionMode: Indexed` |
-| `pod-pool` | > 1 wave/min, < 30s tasks | 0s (pre-warmed) | Deployment + HPA, Redis/Pub/Sub queue |
-| `auto` | Mixed workloads | Adaptive | Tracks wave frequency, promotes after 3 consecutive waves within 5min |
-
-## Resource Profiles
-
-| Profile | CPU | Memory | GPU | Use case |
-|---------|-----|--------|-----|----------|
-| `light` | 0.5 | 512Mi | — | Linting, formatting, simple analysis |
-| `standard` | 2 | 4Gi | — | Code generation, test execution, builds |
-| `heavy` | 8 | 16Gi | — | Large refactors, full test suites, compilation |
-| `gpu` | 4 | 16Gi | 1×T4 | ML inference, embedding generation |
-
-## GCS Layout
-
-```
-gs://gke-dispatch-claude-mcp-457317/
-  waves/{wave_id}/
-    manifest.json
-    inputs/{task_id}.json
-    outputs/{task_id}/
-      result.json
-      stdout.log
-      stderr.log
-      artifacts/
-```
-
-## Failure Handling
-
-| Failure | Response |
-|---------|----------|
-| Task OOM | Pod restarts (backoffLimit: 2), escalates resource_profile on retry |
-| Task timeout | Killed, marked `failed`, included in retry set |
-| Node preemption | Pod rescheduled automatically |
-| Partial wave failure | Re-run `dispatch.py` with same manifest — retries only failed/pending |
-| GCS write failure | Sidecar retries 3x with backoff; Cloud Logging backup |
-| Cluster unreachable | Clear error exit; manifest stays `pending` for retry |
-
-## Envision-MCP Integration
-
-Before raw kubectl, check for MCP dispatch tools via `search("gke dispatch batch")`.
-Prefer MCP `execute()` over kubectl when available. Fallback: scripts use kubectl directly.
-
-## Full Roadmap Execution
-
-Phases run sequentially (gated on verification); waves within each phase run in parallel on GKE.
-
-### From a GSD .planning/ directory
+3. Dispatch, then collect (polls `result.json` per task; exits 1 if any task failed):
 
 ```bash
-python3 scripts/run_roadmap.py \
-  --planning-dir .planning \
-  --bucket gs://gke-dispatch-claude-mcp-457317
+python3 dispatch.py --manifest /tmp/wave.json
+python3 collect.py  --manifest /tmp/wave.json --timeout 1800
 ```
 
-Groups plans into waves by `files_modified` overlap and executes phases sequentially.
+`collect.py` rewrites the manifest with per-task `exit_code`, `duration_seconds`, GCS paths, and
+(for executor tasks) `is_error` and `cost_usd`. Read a task's output with
+`gcloud storage cat gs://gke-dispatch-claude-mcp-457317/waves/<wave_id>/outputs/<task_id>/stdout.log`.
 
-### From a roadmap JSON
+## Scheduling reality
 
-```bash
-python3 scripts/run_roadmap.py \
-  --roadmap roadmap.json \
-  --bucket gs://gke-dispatch-claude-mcp-457317
-```
+The two task kinds schedule differently:
 
-### Checkpoint resume
+- **Generic tasks** (Indexed Job) take the first fit. `default-pool` (on-demand e2-standard-4,
+  usually 2 to 3 nodes running) is untainted, so `light` and `standard` pods start after an
+  image pull, typically 1 to 2 minutes. `heavy` asks for 8 CPU, which no default-pool node has;
+  it tolerates the spot GPU pools and waits for a g2-standard-24 to scale up.
+- **Executor tasks** pin to **spot** nodes. Every spot pool on `envision-compute` is a GPU pool
+  and they idle at zero, so a `standard` executor task boots an L4 spot node: 2 to 5 minutes
+  before Claude starts. A dozen 20-minute plans amortize that; a dozen 30-second tasks do not.
 
-```bash
-python3 scripts/run_roadmap.py \
-  --resume gs://gke-dispatch-claude-mcp-457317/roadmaps/my-roadmap/state.json
-```
+| Profile | Request / limit | Generic task lands on | Executor task lands on |
+|---|---|---|---|
+| `light` | 0.5 CPU, 512Mi / 1 CPU, 1Gi | `default-pool` | spot L4 node (prefers dual-L4) |
+| `standard` | 2 CPU, 4Gi / 4, 8Gi | `default-pool` | spot L4 node |
+| `heavy` | 8 CPU, 16Gi / 16, 32Gi | spot dual-L4 node (scale-up) | spot dual-L4 node |
+| `gpu` | 4 CPU, 16Gi + 1 GPU | L4 pools only | L4 pools only |
+| `gpu_high` | 8 CPU, 64Gi + 1 GPU | `h100-spot-pool` | `h100-spot-pool` |
 
-Completed waves and phases skip automatically.
+A non-zero exit marks the task `failed` and the Job retries it up to `retries` times (default 2).
+Deterministic checks such as linters should set `retries: 0`; a lint finding is not a transient
+failure. Generic pods carry no GitHub credential: private repos need the executor image (GitHub
+App token) or a token you provision in Secret Manager yourself.
 
-### Autonomous mode
+There is no A100 pool; do not invent a profile for one. Quotas for modern GPUs are only visible
+through `gcq us-central1 claude-mcp-457317 gpu`, never `gcloud compute regions describe`.
 
-Run without confirmation prompts between phases:
+## Claude executor tasks
 
-```bash
-python3 scripts/run_roadmap.py --planning-dir .planning --auto \
-  --bucket gs://gke-dispatch-claude-mcp-457317
-```
+An executor task clones `repo_url` at `repo_branch` (pinned to `git_sha` when set), reads the
+plan from `plan_path` inside the clone or from inline `plan_content`, and runs
+`claude -p --dangerously-skip-permissions --output-format json --max-budget-usd <n>` with the
+plan as the prompt. The pod authenticates through Workload Identity: an init container pulls the
+Claude OAuth token and the GitHub App key from Secret Manager, so no credentials live in
+manifests or images.
 
-Without `--auto`, pauses after each phase. `n` or Ctrl+C saves state for `--resume`.
+Budget is the bound (`--max-turns` no longer exists in the CLI). A headless session pays roughly a
+dollar of context before working, so `max_budget_usd` below `2` fails on trivial plans; real plans
+want `10` to `25`. `result.json` carries `total_cost_usd`, `num_turns`, and `is_error`; a clean
+exit with `is_error: true` is recorded as a failure.
 
-### Dry run
-
-Preview the execution plan without dispatching:
-
-```bash
-python3 scripts/run_roadmap.py --planning-dir .planning --dry-run
-```
-
-### Roadmap JSON format
+Task shape:
 
 ```json
-{
-  "roadmap_id": "my-project-v2",
-  "phases": [
-    {
-      "id": "phase-1",
-      "title": "Foundation",
-      "waves": [
-        [
-          {"id": "auth", "cmd": "...", "image": "...", "files_modified": ["src/auth.ts"]},
-          {"id": "db", "cmd": "...", "image": "...", "files_modified": ["src/db.ts"]}
-        ],
-        [
-          {"id": "api", "cmd": "...", "image": "...", "files_modified": ["src/auth.ts", "src/db.ts"]}
-        ]
-      ],
-      "verification": {
-        "cmd": "npm test",
-        "required": true
-      }
-    }
-  ]
-}
+{"id": "refactor-auth", "cmd": "", "image": "avireddy0/claude-executor:latest",
+ "resource_profile": "standard", "timeout_seconds": 1800,
+ "inputs": {"repo_url": "https://github.com/Envision-Construction/Envision-MCP.git",
+            "repo_branch": "main", "plan_path": ".planning/phases/03/03-02-PLAN.md",
+            "max_budget_usd": "15"}}
 ```
 
-Tasks with no `files_modified` overlap run in the same wave. Verification gates before the next phase.
+Commits land on `gke-dispatch/<wave_id>/<task_id>`. Open PRs from those branches yourself, or
+merge them in a conductor step; the dispatcher never merges into `main`. Image contents, the
+auth flow, the rebuild procedure, and a smoke test: `references/executor-image.md`.
 
-## LLM Executor Image
+## GSD phases and roadmaps
 
-Image: `avireddy0/claude-executor:latest`
+`run_roadmap.py` runs a whole milestone: phases in dependency batches, waves inside a phase in
+parallel, state checkpointed to `gs://…/roadmaps/<roadmap_id>/state.json`.
 
-- Claude Code CLI in `-p` (headless) mode
-- `CLAUDE_CODE_OAUTH_TOKEN` auth via Secret Manager CSI
-- GitHub App token generation (app 3604031) for multi-repo push
-- Entrypoint handles clone, plan execution, GCS upload, and git push
-
-### Build and push
+From a GSD planning directory (every plan becomes an executor task):
 
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT}/skills/dispatch/docker
-docker build -t avireddy0/claude-executor:latest .
-docker push avireddy0/claude-executor:latest
+python3 run_roadmap.py --planning-dir ~/GitHub/Envision-MCP/.planning --dry-run   # inspect batches
+python3 run_roadmap.py --planning-dir ~/GitHub/Envision-MCP/.planning --auto      # run unattended
 ```
 
-### Secrets setup
+It reads each plan's frontmatter the way gsd-core does: `wave:` decides the wave, plans in one
+wave that share `files_modified:` split into sequential sub-waves, and `files_modified` across
+phases decides which phases may run concurrently. Phases with a `SUMMARY.md` are skipped.
+Planning-dir mode has **no verification gate** (PLAN.md has no verification command) and says so
+at startup; when phases must gate on tests, author a roadmap JSON instead:
+`references/multi-phase-milestone.md`.
 
-Apply the SecretProviderClass (one-time):
+Resume after an interrupt or a failed phase:
 
 ```bash
-kubectl apply -f docker/k8s-secrets.yaml
+python3 run_roadmap.py --resume gs://gke-dispatch-claude-mcp-457317/roadmaps/<roadmap_id>/state.json
 ```
 
-Requires two secrets in Secret Manager (`claude-mcp-457317`):
-- `gsd-claude-oauth-token` — from `claude setup-token` on a workstation
-- `gsd-github-app-private-key` — GitHub App 3604031 private key PEM
+gsd-core's own `execute-phase` runs the same wave law in-session with subagents. Use it when the
+phase should run here; use this skill when the phase should run on the cluster, unattended, with
+GCS as the audit trail.
 
-### Task definition for LLM execution
+## Retry and resume
 
-```python
-tasks.append({
-    "id": "refactor-auth",
-    "cmd": "",  # entrypoint resolves from PLAN_PATH
-    "image": "avireddy0/claude-executor:latest",
-    "resource_profile": "standard",
-    "inputs": {
-        "repo_url": "https://github.com/Envision-Construction/Envision-MCP.git",
-        "repo_branch": "main",
-        "plan_path": ".planning/phase-3/PLAN-auth.md",
-        "max_turns": "25",
-    },
-})
-```
+- **Re-run `dispatch.py` with the same manifest.** Tasks marked `completed` in the GCS manifest
+  are skipped; `failed` tasks reset to pending and re-dispatch. Inside the pod, a second guard
+  skips any task whose `result.json` already exists.
+- **`collect.py` timed out** with tasks still pending: the pods may still be running. Re-run
+  `collect.py` later with the same manifest.
+- **Roadmap halted**: the `--resume` command is printed at the halt; completed waves and phases
+  skip.
+- **A wave in the bucket you did not dispatch this session**: `gcloud storage cat
+  gs://gke-dispatch-claude-mcp-457317/waves/<wave_id>/manifest.json` is the state.
 
-`dispatch.py` auto-detects `claude-executor` images and generates per-task Jobs with Secret Manager CSI mounts.
+## What the guarantees are (and are not)
+
+| Guarantee | Mechanism |
+|---|---|
+| No silently dropped task | every task is in the manifest; `collect.py` marks the wave `partial_failure`/`failed` at timeout instead of reporting success |
+| Output capture | indexed jobs: a `log-shipper` sidecar copies logs, `result.json`, and `/outputs` to GCS; executor jobs: the entrypoint uploads them itself |
+| Idempotent replay | `wave_id` merge in `dispatch.py` plus the in-pod `result.json` check |
+| Atomic results | `result.json` written to `.tmp` then `gsutil mv` |
+| Crash recovery | manifest and roadmap state live in GCS; re-run with the same ids |
+
+Not provided, despite earlier drafts of this skill claiming them: automatic resource-profile
+escalation on OOM (a task retries with the same profile up to `retries`), retry-with-backoff on
+GCS uploads (a failed upload is logged and skipped), a pre-warmed pod pool (`mode: pod-pool` is
+accepted and ignored), and any merge of executor branches into `main`.
+
+## Which dispatch path
+
+| Work | Path |
+|---|---|
+| Arbitrary containers or Claude plans, parallel, resumable | this skill |
+| A named Envision-MCP compute skill (`test_runner`, `parallel_grep`, `code_analysis`, `document_search`, …) | `dispatch_heavy_job` on the Envision-MCP gateway |
+| A GSD phase to run in this session | `/gsd-execute-phase` |
+| A batch longer than ~5 hours, a red-team panel, a sweep | Cloud Run jobs |
+
+Details and the `dispatch_heavy_job` call shape: `references/envision-mcp-integration.md`.
 
 ## References
 
-- [references/manifest-schema.md](references/manifest-schema.md) — Full JSON schema with validation rules and idempotency contract
-- [references/multi-phase-milestone.md](references/multi-phase-milestone.md) — Authoring a roadmap JSON for a multi-phase milestone; phase ordering, verification gates, and the depends_on cross-phase anti-pattern
-- [references/cluster-setup.md](references/cluster-setup.md) — Error-driven remediation reference (consult only when something fails)
-- [references/envision-mcp-integration.md](references/envision-mcp-integration.md) — MCP tool discovery and fallback pattern
+- `references/manifest-schema.md`: full manifest JSON, validation rules, the same-wave
+  `depends_on` contract, status transitions.
+- `references/multi-phase-milestone.md`: roadmap JSON authoring, phase batching, annotated
+  three-phase skeleton, anti-patterns.
+- `references/executor-image.md`: image contents, auth flow, input/output contract, budget
+  floor, rebuild and smoke test.
+- `references/cluster-setup.md`: live cluster facts, node pools, error-driven remediation.
+- `references/envision-mcp-integration.md`: choosing between this skill, `dispatch_heavy_job`,
+  and gsd-core.
+
+Tests: `uv run --with pytest --with pyyaml python -m pytest tests -q` from the skill directory
+(99 tests; pure functions, no cluster access).

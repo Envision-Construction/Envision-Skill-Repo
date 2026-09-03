@@ -22,8 +22,11 @@ def check_task_completion(task: dict, bucket: str, wave_id: str) -> dict:
         return task
 
     exit_code = result.get("exit_code", -1)
+    is_error = bool(result.get("is_error", False))
     task["result"] = {
         "exit_code": exit_code,
+        "is_error": is_error,
+        "cost_usd": result.get("total_cost_usd"),
         "duration_seconds": result.get("duration_seconds"),
         "output_path": f"{base}/result.json",
         "stdout_path": f"{base}/stdout.log",
@@ -31,7 +34,7 @@ def check_task_completion(task: dict, bucket: str, wave_id: str) -> dict:
         "artifacts": gcs_list(f"{base}/artifacts/"),
         "error": result.get("error") if exit_code != 0 else None,
     }
-    task["status"] = "completed" if exit_code == 0 else "failed"
+    task["status"] = "completed" if exit_code == 0 and not is_error else "failed"
     return task
 
 
@@ -87,7 +90,7 @@ def collect(manifest: dict, bucket: str, timeout: int, poll_interval: int = 10) 
             break
 
         if time.time() - start > timeout:
-            print(f"Timeout after {timeout}s — {pending} tasks still pending", file=sys.stderr)
+            print(f"Timeout after {timeout}s: {pending} tasks still pending", file=sys.stderr)
             manifest["status"] = "partial_failure" if completed > 0 else "failed"
             break
 
@@ -98,6 +101,9 @@ def collect(manifest: dict, bucket: str, timeout: int, poll_interval: int = 10) 
     durations = [t["result"]["duration_seconds"] for t in manifest["tasks"]
                  if t.get("result") and t["result"].get("duration_seconds")]
     manifest["metrics"]["total_cpu_seconds"] = round(sum(durations), 2) if durations else None
+    costs = [t["result"]["cost_usd"] for t in manifest["tasks"]
+             if t.get("result") and t["result"].get("cost_usd") is not None]
+    manifest["metrics"]["total_cost_usd"] = round(sum(costs), 4) if costs else None
 
     gcs_write_json(f"{bucket}/waves/{wave_id}/manifest.json", manifest)
 
@@ -114,6 +120,8 @@ def print_summary(manifest: dict) -> None:
         print(f"Wall clock: {m['wall_clock_seconds']}s", file=sys.stderr)
     if m.get("total_cpu_seconds"):
         print(f"Total CPU time: {m['total_cpu_seconds']}s", file=sys.stderr)
+    if m.get("total_cost_usd") is not None:
+        print(f"Claude spend: ${m['total_cost_usd']}", file=sys.stderr)
     print(f"{'='*60}", file=sys.stderr)
 
     for task in manifest["tasks"]:
@@ -124,7 +132,7 @@ def print_summary(manifest: dict) -> None:
             if r.get("duration_seconds"):
                 line += f" ({r['duration_seconds']}s)"
             if r.get("error"):
-                line += f" — {r['error']}"
+                line += f": {r['error']}"
         print(line, file=sys.stderr)
 
 
