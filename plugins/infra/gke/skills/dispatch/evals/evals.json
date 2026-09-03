@@ -8,10 +8,13 @@
       "files": [],
       "expectations": [
         "A wave manifest JSON file was produced by normalize_wave.py and contains exactly 2 tasks with image python:3.12-slim",
-        "The generated Kubernetes YAML (kind: Job, completionMode: Indexed) is present in the outputs",
+        "The Kubernetes Job YAML in the outputs came from `dispatch.py --dry-run` (commands_run.md shows that invocation and the saved dry-run log contains its 'no GCS writes' line), not only from an in-process build_job_yaml call",
         "The answer names the kubectl context gke_claude-mcp-457317_us-central1_envision-compute or the cluster envision-compute as the dispatch target",
         "The answer correctly describes where these generic Indexed Job pods schedule (the untainted on-demand default-pool, not the spot GPU pools) and gives a start-up estimate grounded in image pull or scale-up rather than a bare guess",
-        "commands_run.md shows no `kubectl apply` without --dry-run and no gsutil/gcloud storage cp or write to gs://",
+        "The answer states that Envision-MCP is a private repository and that a generic pod carries no GitHub credential, so the clone as written would fail, and offers a viable route",
+        "The answer notes that python:3.12-slim has no git (adjusting the command to install it, or choosing another image)",
+        "The answer states that a task's non-zero exit is retried per task and that setting retries: 0 for a linter does not terminate the sibling task",
+        "commands_run.md shows no `kubectl apply` without --dry-run and no gsutil/gcloud storage cp/mv/rm or other write to gs://",
         "The answer does not claim that a pod-pool or pre-warmed mode exists"
       ]
     },
@@ -23,13 +26,17 @@
         "/private/tmp/claude-501/-Users-avireddy-GitHub-claude-code-memory/03a30200-2f09-4f4e-9598-1dae143aa2ff/scratchpad/gke-dispatch-workspace/fixtures/planning-fixture/.planning"
       ],
       "expectations": [
-        "run_roadmap.py was invoked with --dry-run (or equivalent) against the fixture planning dir, per commands_run.md",
+        "run_roadmap.py was invoked with --dry-run against the fixture planning dir, per commands_run.md",
         "Phase 40 is reported as skipped or already complete because it has a SUMMARY.md",
-        "Plan 41-03 is placed in a later wave than 41-01 and 41-02 (declared wave: 2), not in the same parallel wave",
-        "Phase 42 is reported as running after phase 41 (they share gateway/schemas/domain_schemas.py)",
+        "The skill's OWN --planning-dir dry-run output (saved in outputs, not a hand-authored corrected roadmap) places plan 41-03 in a later wave than 41-01 and 41-02",
+        "The skill's own dry-run output runs phase 42 in a sequential batch after phase 41 (they share gateway/schemas/domain_schemas.py)",
         "The answer states that task commits land on branches named gke-dispatch/<wave_id>/<task_id> and are not merged automatically",
+        "The answer explains how 41-03 receives 41-01 and 41-02's code (their branches are merged before its plan runs, via depends_on resolved to merge_branches) rather than claiming or implying it runs on the kickoff tree",
+        "The answer flags that plan 42-01 declares no depends_on, so phase 42 would run on the kickoff tree without phase 41's branches despite sharing gateway/schemas/domain_schemas.py, and says how to fix it (add depends_on)",
+        "The answer flags that the fixture directory is not a git repository, so repo_url is empty and the pods would clone nothing and push nothing until run from a real clone",
         "The answer says planning-dir mode has no real verification gate (no verification command in PLAN.md) rather than claiming tests gate each phase",
-        "The answer gives a run_roadmap.py --planning-dir ... --auto command and a --resume gs://.../roadmaps/<id>/state.json command",
+        "The answer gives a run_roadmap.py --planning-dir ... --auto command and a --resume gs://.../roadmaps/<id>/state.json command that keeps --auto for an unattended resume",
+        "The answer states the executor task defaults it observed (timeout 1800 s, budget 15 USD), not invented values",
         "commands_run.md shows no non-dry-run dispatch, no kubectl apply, and no writes to gs://"
       ]
     },
@@ -41,11 +48,13 @@
         "/private/tmp/claude-501/-Users-avireddy-GitHub-claude-code-memory/03a30200-2f09-4f4e-9598-1dae143aa2ff/scratchpad/gke-dispatch-workspace/fixtures/partial-failure-manifest.json"
       ],
       "expectations": [
-        "The answer says to re-run dispatch.py with the same manifest / wave_id, followed by collect.py",
-        "The answer states the three completed tasks will NOT re-run (idempotent merge keeps completed status)",
-        "The answer points to gs://gke-dispatch-claude-mcp-457317/waves/gsd-p33-w1-1787200000/outputs/plan-33-03/stderr.log or result.json (or the equivalent path) as the place to look",
-        "The answer states that depends_on across waves is invalid or unsupported (same-wave only) and that plan-33-05 must be fixed",
-        "The answer mentions that finished Jobs disappear from kubectl after an hour or that GCS is the record (optional but discriminating)",
+        "The answer says to re-run dispatch.py with the same manifest / wave_id (after removing the invalid depends_on), followed by collect.py",
+        "The answer states the three completed tasks will NOT re-run (completed status is preserved; only pending tasks become Jobs)",
+        "The answer states that failed tasks in the local manifest are reset to pending by dispatch.py itself, so no GCS manifest and no hand edit of status is required (or, if it observed otherwise, reports exactly what the dry-run printed)",
+        "The answer explains, from dispatch.py's code path, that a stale failed result.json under outputs/plan-33-03/ would be archived before re-dispatch (the synthetic fixture has none in GCS, so the dry-run cannot print 'Would archive')",
+        "The answer points to gs://gke-dispatch-claude-mcp-457317/waves/gsd-p33-w1-1787200000/outputs/plan-33-03/stderr.log or result.json (or the equivalent path) as the place to look, and notes Jobs vanish from kubectl after an hour so GCS is the record",
+        "The answer states that depends_on across waves is invalid (same-wave only for a hand-built manifest), that dispatch.py rejects it naming plan-32-02, and that plan-33-05's depends_on must be removed (with the code merged another way if needed)",
+        "The retry lands on envision-compute: the answer names the context gke_claude-mcp-457317_us-central1_envision-compute (or explains that the manifest's cluster: null resolves to it) rather than leaving a bare kubectl on the current context",
         "commands_run.md shows no dispatch.py run without --dry-run, no kubectl apply, and no writes to gs://"
       ]
     }

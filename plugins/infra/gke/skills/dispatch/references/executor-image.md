@@ -52,7 +52,12 @@ Env set by `job_templates.build_executor_job`:
 | `PLAN_PATH` | `inputs.plan_path` | Path inside the cloned repo |
 | `TASK_CMD` | `task.cmd` | Shell fallback when no plan resolves |
 | `MAX_BUDGET_USD` | `inputs.max_budget_usd` (default `5`) | `--max-budget-usd` for the headless session |
-| `DEP_BRANCHES_FILE` | fixed | Written by `wait-deps` when `depends_on` is set |
+| `DEP_BRANCHES_FILE` | fixed | Written by `wait-deps` from same-wave `depends_on` (polled) and `inputs.merge_branches` (earlier waves, written directly) |
+
+Before cloning, the entrypoint checks `outputs/<task_id>/result.json`; a prior exit-0 result means
+the task already ran (a re-applied Job, or a resume after `collect.py` timed out) and the pod
+exits 0 without spending budget. `dispatch.py` archives failed results before re-dispatching, so
+this guard never blocks a retry.
 
 Prompt resolution order: `PLAN_PATH` file in the clone; `plan_content` from `inputs/<task>.json`;
 `plan_path` from that JSON; else `TASK_CMD` (or `cmd` from the JSON) runs via `eval`. With no
@@ -77,9 +82,11 @@ Uploaded to `gs://<bucket>/waves/<wave_id>/outputs/<task_id>/`:
 Git: uncommitted changes are auto-committed as `[gke-dispatch] <wave>/<task>: auto-commit remaining
 changes`, then the branch `gke-dispatch/<wave_id>/<task_id>` is pushed with `--force-with-lease`.
 **Nothing merges automatically.** Open PRs from those branches, or merge them in a conductor step.
-Same-wave `depends_on` is the one automatic merge: `wait-deps` blocks until each dependency's
-`result.json` shows `exit_code: 0`, then the entrypoint fetches and merges
-`origin/gke-dispatch/<wave_id>/<dep_id>` before the plan runs.
+Dependencies are the one automatic merge: for same-wave `depends_on`, `wait-deps` blocks until
+each dependency's `result.json` shows `exit_code: 0`; for `inputs.merge_branches` (earlier waves,
+resolved by `run_roadmap.py`) it writes the branches immediately. The entrypoint then fetches and
+merges every recorded `origin/gke-dispatch/<wave_id>/<task_id>` before the plan runs; a merge
+conflict is fatal for that task.
 
 ## Rebuilding
 

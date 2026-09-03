@@ -136,6 +136,7 @@ def parse_planning_dir(planning_dir: str) -> dict:
 
             plans.append({
                 "id": plan_name,
+                "plan_num": plan_name[len("phase-"):] if plan_name.startswith("phase-") else plan_name,
                 "plan_path": rel_plan_path,
                 "plan_content": plan_text,
                 "cmd": "",
@@ -338,38 +339,104 @@ def save_state(state: dict, bucket: str, dry_run: bool = False) -> None:
 
 # --- Execution ---
 
-def execute_wave(wave_tasks: list[dict], wave_id: str, bucket: str,
-                 namespace: str, dry_run: bool = False) -> dict:
-    """Normalize, dispatch, and collect a single wave."""
-    tasks_json = json.dumps([
-        {
+DEFAULT_PLAN_TIMEOUT_S = 1800   # a Claude plan run is tens of minutes, not the generic 600 s
+DEFAULT_PLAN_BUDGET_USD = 15    # the headless context floor is ~1 USD; real plans want 10 to 25
+
+
+def build_branch_lookup(roadmap: dict, state: dict) -> dict[str, tuple[str, tuple[int, int]]]:
+    """Map every task id, and its bare plan number ("41-01" for "phase-41-01"), to the branch its
+    executor pushes plus its (phase, wave) position. A later wave names an earlier task in
+    depends_on and gets that branch merged before its plan runs."""
+    lookup: dict[str, tuple[str, tuple[int, int]]] = {}
+    for pi, (phase, phase_state) in enumerate(zip(roadmap["phases"], state["phases"])):
+        for wi, (wave, wave_state) in enumerate(zip(phase["waves"], phase_state["waves"])):
+            for t in wave:
+                entry = (f"gke-dispatch/{wave_state['wave_id']}/{t['id']}", (pi, wi))
+                lookup[t["id"]] = entry
+                if t["id"].startswith("phase-"):
+                    lookup[t["id"][len("phase-"):]] = entry
+    return lookup
+
+
+def resolve_dependencies(task: dict, wave_task_ids: set[str],
+                         branch_lookup: dict, position: tuple[int, int] | None) -> tuple[list[str], list[str]]:
+    """Split depends_on into same-wave task ids (the wait-deps init container polls them) and
+    branches of tasks from earlier waves or phases (merged before the plan runs)."""
+    same_wave: list[str] = []
+    merge_branches: list[str] = []
+    for dep in task.get("depends_on") or []:
+        for candidate in (dep, f"phase-{dep}"):
+            if candidate in wave_task_ids:
+                same_wave.append(candidate)
+                break
+        else:
+            entry = branch_lookup.get(dep)
+            if entry is None:
+                raise ValueError(f"task {task['id']} depends on unknown task {dep!r}")
+            branch, dep_pos = entry
+            if position is not None and dep_pos >= position:
+                raise ValueError(
+                    f"task {task['id']} depends on {dep!r}, which runs in the same or a later wave; "
+                    "dependencies must point at earlier waves")
+            merge_branches.append(branch)
+    return same_wave, merge_branches
+
+
+def build_wave_tasks(wave_tasks: list[dict], branch_lookup: dict | None = None,
+                     position: tuple[int, int] | None = None) -> list[dict]:
+    """Roadmap task -> normalize_wave task. Nested `inputs` are honored; top-level plan fields
+    override them; timeout, retries, budget and depends_on all pass through."""
+    wave_task_ids = {t["id"] for t in wave_tasks}
+    out = []
+    for t in wave_tasks:
+        inputs = dict(t.get("inputs") or {})
+        for key in ("plan_path", "plan_content", "repo_url", "repo_branch", "git_sha", "max_budget_usd"):
+            if t.get(key) not in (None, ""):
+                inputs[key] = t[key]
+        inputs.setdefault("repo_branch", "main")
+        inputs["max_budget_usd"] = str(inputs.get("max_budget_usd", DEFAULT_PLAN_BUDGET_USD))
+        same_wave, merge_branches = resolve_dependencies(t, wave_task_ids, branch_lookup or {}, position)
+        if merge_branches:
+            inputs["merge_branches"] = merge_branches
+        task = {
             "id": t["id"],
-            "cmd": t["cmd"],
+            "cmd": t.get("cmd", ""),
             "image": t["image"],
             "resource_profile": t.get("resource_profile", "standard"),
-            "inputs": {
-                "plan_path": t.get("plan_path", ""),
-                "plan_content": t.get("plan_content", ""),
-                "repo_url": t.get("repo_url", ""),
-                "repo_branch": t.get("repo_branch", "main"),
-                "git_sha": t.get("git_sha", ""),
-                "max_budget_usd": str(t.get("max_budget_usd", 5)),
-            },
+            "timeout_seconds": int(t.get("timeout_seconds", DEFAULT_PLAN_TIMEOUT_S)),
+            "retries": int(t.get("retries", 2)),
+            "inputs": inputs,
         }
-        for t in wave_tasks
-    ])
+        if same_wave:
+            task["depends_on"] = same_wave
+        out.append(task)
+    return out
+
+
+def execute_wave(wave_tasks: list[dict], wave_id: str, bucket: str,
+                 namespace: str, dry_run: bool = False, branch_lookup: dict | None = None,
+                 position: tuple[int, int] | None = None, git_sha: str | None = None) -> dict:
+    """Normalize, dispatch, and collect a single wave."""
+    try:
+        tasks_json = json.dumps(build_wave_tasks(wave_tasks, branch_lookup, position))
+    except ValueError as e:
+        print(f"  Dependency error: {e}", file=sys.stderr)
+        return {"status": "failed", "error": str(e)}
 
     import tempfile
     manifest_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
     manifest_path = manifest_file.name
     manifest_file.close()
 
-    result = run_script("normalize_wave.py", [
+    normalize_args = [
         "--wave-id", wave_id,
         "--tasks", tasks_json,
         "--framework", "gsd",
         "--output", manifest_path,
-    ])
+    ]
+    if git_sha:
+        normalize_args += ["--git-sha", git_sha]
+    result = run_script("normalize_wave.py", normalize_args)
     if result.returncode != 0:
         print(f"  Normalize failed: {result.stderr}", file=sys.stderr)
         return {"status": "failed", "error": result.stderr}
@@ -391,10 +458,11 @@ def execute_wave(wave_tasks: list[dict], wave_id: str, bucket: str,
         print(f"  Dispatch failed: {result.stderr}", file=sys.stderr)
         return {"status": "failed", "error": result.stderr}
 
+    max_timeout = max(int(t.get("timeout_seconds", DEFAULT_PLAN_TIMEOUT_S)) for t in wave_tasks)
     result = run_script("collect.py", [
         "--manifest", manifest_path,
         "--bucket", bucket,
-        "--timeout", "1800",
+        "--timeout", str(max_timeout + 600),   # deadline + spot scale-up headroom
     ])
 
     with open(manifest_path) as f:
@@ -465,7 +533,8 @@ _metrics_lock = threading.Lock()
 
 def execute_phase(phase: dict, phase_state: dict, state: dict, pi: int,
                   total_phases: int, bucket: str, namespace: str,
-                  dry_run: bool) -> bool:
+                  dry_run: bool, branch_lookup: dict | None = None,
+                  git_sha: str | None = None) -> bool:
     """Execute a single phase. Returns True on success, False on failure."""
     print(f"\n{'='*60}", file=sys.stderr)
     print(f"Phase {pi+1}/{total_phases}: {phase['title']}", file=sys.stderr)
@@ -486,7 +555,8 @@ def execute_phase(phase: dict, phase_state: dict, state: dict, pi: int,
         wave_state["status"] = "running"
 
         wave_result = execute_wave(
-            wave_tasks, wave_state["wave_id"], bucket, namespace, dry_run
+            wave_tasks, wave_state["wave_id"], bucket, namespace, dry_run,
+            branch_lookup, (pi, wi), git_sha,
         )
 
         if dry_run:
@@ -543,6 +613,11 @@ def execute_roadmap(roadmap: dict, state: dict, bucket: str,
     start_phase = state["current_phase_index"]
     total_phases = len(roadmap["phases"])
 
+    branch_lookup = build_branch_lookup(roadmap, state)
+    git_sha = roadmap.get("git_sha")
+    resume_cmd = (f"python3 run_roadmap.py --resume {bucket}/roadmaps/{state['roadmap_id']}/state.json"
+                  + (" --auto" if auto else ""))
+
     batches = group_phases_into_batches(roadmap["phases"], start_phase)
     print(f"Phase parallelism: {len(batches)} sequential batches from {total_phases} phases", file=sys.stderr)
     for bi, batch in enumerate(batches):
@@ -567,15 +642,14 @@ def execute_roadmap(roadmap: dict, state: dict, bucket: str,
                 continue
 
             success = execute_phase(phase, phase_state, state, pi, total_phases,
-                                     bucket, namespace, dry_run)
+                                     bucket, namespace, dry_run, branch_lookup, git_sha)
             save_state(state, bucket, dry_run)
 
             if not success and not dry_run:
                 state["status"] = "partial_failure"
                 save_state(state, bucket, dry_run)
                 print(f"\nPhase {phase['id']} FAILED: roadmap halted", file=sys.stderr)
-                print(f"Resume with: python3 run_roadmap.py --resume {bucket}/roadmaps/{state['roadmap_id']}/state.json",
-                      file=sys.stderr)
+                print(f"Resume with: {resume_cmd}", file=sys.stderr)
                 break
         else:
             from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -590,7 +664,7 @@ def execute_roadmap(roadmap: dict, state: dict, bucket: str,
                 if phase_state["status"] == "completed":
                     return pi, True
                 success = execute_phase(phase, phase_state, state, pi, total_phases,
-                                         bucket, namespace, dry_run)
+                                         bucket, namespace, dry_run, branch_lookup, git_sha)
                 return pi, success
 
             batch_failed = False
@@ -611,6 +685,7 @@ def execute_roadmap(roadmap: dict, state: dict, bucket: str,
                 state["status"] = "partial_failure"
                 save_state(state, bucket, dry_run)
                 print(f"\nParallel batch failed: roadmap halted", file=sys.stderr)
+                print(f"Resume with: {resume_cmd}", file=sys.stderr)
                 break
 
         if not dry_run and not auto:

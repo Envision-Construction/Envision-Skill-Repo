@@ -27,7 +27,7 @@ Mitigation: Pods run as a non-root user in an isolated Job; pushes go only to `g
 Risk: The published executor image (Docker Hub, 2026-05-08) lags the entrypoint in this repo. <br>
 Mitigation: `references/executor-image.md` documents the staleness, the rebuild, and a smoke test; dispatch executor waves only after rebuilding. <br>
 Risk: Review before execution as proposals could introduce incorrect or misleading guidance into skills. <br>
-Mitigation: Review and scan skill before deployment; 99 unit tests cover manifest validation, Job YAML generation, dry-run isolation, and roadmap parsing. <br>
+Mitigation: Review and scan skill before deployment; 113 unit tests cover manifest validation, Job YAML generation, dry-run isolation, and roadmap parsing. <br>
 
 ## Reference(s): <br>
 - [manifest-schema.md](references/manifest-schema.md) <br>
@@ -43,4 +43,4 @@ Mitigation: Review and scan skill before deployment; 99 unit tests cover manifes
 **Other Properties Related to Output:** [Results persisted to gs://gke-dispatch-claude-mcp-457317/waves/<wave_id>/] <br>
 
 ## Skill Version(s): <br>
-1.1.0 (gke plugin version; upgraded 2026-09-03; git SHA assigned at commit) <br>
+1.1.1 (gke plugin version; upgraded 2026-09-03, eval-loop fixes same day; git SHA assigned at commit) <br>

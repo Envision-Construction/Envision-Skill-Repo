@@ -14,8 +14,8 @@ batches; waves inside a phase run in parallel on GKE; one command runs the whole
 
 `--planning-dir` mode reads each plan's frontmatter: `wave:` decides the wave (plans in one
 declared wave that share `files_modified` are split into sequential sub-waves, gsd-core's own
-rule), `files_modified:` feeds phase batching, `depends_on:` is recorded on the task. It has **no
-verification gate**: PLAN.md carries no verification command, so every phase's gate is
+rule), `files_modified:` feeds phase batching, `depends_on:` drives branch merges (next section).
+It has **no verification gate**: PLAN.md carries no verification command, so every phase's gate is
 `{"cmd": null, "required": false}` and the run prints a warning saying so. Phases with a
 `SUMMARY.md` are skipped as already done. Decimal phase directories (`91.1-...`) are supported.
 
@@ -35,24 +35,25 @@ partitions phases into sequential batches; phases inside a batch run concurrentl
 such tasks is parallel-eligible with everything; forget it everywhere and all phases collapse into
 one parallel batch. Declare it on every task of a multi-phase manifest.
 
-## `depends_on`: same wave only
+## `depends_on`: same wave polls, earlier waves merge
 
-`depends_on` is honored only between **executor tasks in the same wave** (same `wave_id`). The
-`wait-deps` init container polls each dependency's `result.json`, fails the task if a dependency
-failed, and records the dependency branches; the executor then merges
-`origin/gke-dispatch/<wave_id>/<dep>` before running its plan. That merge is the only automatic
-hand-off of code between tasks.
+`run_roadmap.py` resolves every executor task's `depends_on` before the wave is normalized:
 
-Consequences:
+- A dependency in the **same wave** stays a dependency. The `wait-deps` init container polls its
+  `result.json`, fails the task if the dependency failed, and records its branch.
+- A dependency in an **earlier wave or phase** becomes `inputs.merge_branches`: the branch
+  `gke-dispatch/<that wave_id>/<task_id>` is written to the same file without polling, because
+  that wave already finished.
+- Either way the executor merges every recorded branch into its clone before the plan runs. That
+  merge is the only automatic hand-off of code between tasks; without a dependency, a wave-2 pod
+  works on the tree pinned at kickoff.
+- A dependency on a task in the **same or a later wave** that is not in this wave is rejected
+  with the offending id, and so is an unknown name. Dependencies must point backwards.
 
-- A task in wave 2 does **not** see wave 1's branches. Waves are already sequential, so a
-  cross-wave `depends_on` buys nothing, and it fails validation (`normalize_wave.py` sees only the
-  current wave's ids). To build on another task's code, put both tasks in one wave with
-  `depends_on`.
-- Cross-phase `depends_on` fails the same way. Cross-phase ordering comes from `files_modified`
-  overlap and `verification.cmd`; pass artifacts through GCS or a known path, referenced from
-  the downstream task's `inputs`.
-- Generic (Indexed Job) tasks ignore `depends_on` entirely.
+`depends_on` values may be task ids (`phase-41-01`) or bare plan numbers (`41-01`), matching
+gsd-core plan frontmatter. Generic (Indexed Job) tasks ignore `depends_on` entirely. A manifest
+you hand to `normalize_wave.py` yourself has no roadmap context, so there dependencies must be
+same-wave ids; `dispatch.py` re-validates and rejects anything else.
 
 ## Annotated skeleton (3 phases)
 
@@ -135,7 +136,12 @@ Notes:
 - `phase-A`: one wave, one task; the minimum viable phase.
 - `phase-B`: all three tasks in **one wave**. `b-01` and `b-02` start immediately; `b-03`'s pod
   waits in `wait-deps` until both have `exit_code: 0`, merges their branches, then runs. Putting
-  `b-03` in a second wave would start it after the others finish but without their code.
+  `b-03` in a second wave with the same `depends_on` also works under `run_roadmap.py`: the
+  dependencies resolve to branch merges and no polling is needed. Without `depends_on`, a
+  second-wave `b-03` would run on the pre-`b-01` tree.
+- Per-task `timeout_seconds`, `retries`, `resource_profile`, and nested `inputs`
+  (`max_budget_usd`, `repo_url`, …) all pass through; omitted values default to 1800 s, 2 retries,
+  `standard`, 15 USD.
 - `phase-C`: a generic container task on `gpu` (one L4, spot). `gpu_high` is the H100 spot pool
   (quota 3 in us-central1); there is no A100 pool. Check quotas with `gcq us-central1 claude-mcp-457317 gpu`.
 - `verification.cmd` runs in the dispatcher's working directory after the phase's last wave.
@@ -170,15 +176,15 @@ as its idempotency key: completed tasks skip, failed tasks reset to pending and 
 
 `~/GitHub/central-command/.planning/milestones/v25.0-roadmap.json` (8 phases, 31 plans, 21 waves)
 is the largest roadmap authored for this dispatcher. Its phase batching per `--dry-run`: phases
-124, 125, 126 parallel (disjoint files), then 127 through 131 serial (all touch `gateway/`). It was
-written before the same-wave `depends_on` rule above was pinned down: 14 of its 20 `depends_on`
-edges point at a task in an earlier wave, so those chains need re-authoring into single waves
-before a dispatch (they fail `normalize_wave.py` validation as written).
+124, 125, 126 parallel (disjoint files), then 127 through 131 serial (all touch `gateway/`). 14 of
+its 20 `depends_on` edges point at a task in an earlier wave; `run_roadmap.py` resolves those to
+branch merges, so the file dispatches as written. The same JSON handed to `normalize_wave.py`
+wave by wave would be rejected, because a lone wave has no roadmap context for the other ids.
 
 ## Anti-patterns
 
-- **Cross-wave or cross-phase `depends_on`**: fails validation. Same wave, or `files_modified`
-  plus `verification.cmd`.
+- **Forward `depends_on`** (a task in the same batch's later wave, or a later phase): rejected.
+  Dependencies point backwards; ordering forwards comes from `wave:` and `files_modified`.
 - **Tasks without `files_modified`**: every phase becomes parallel-eligible.
 - **One giant wave with every task**: loses the gate between logical units.
 - **`verification.required: false` everywhere**: the gate is ornamental; run the check or drop it.

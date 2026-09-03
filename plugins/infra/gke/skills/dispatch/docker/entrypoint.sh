@@ -40,6 +40,15 @@ GCS_BUCKET="${GCS_BUCKET:?GCS_BUCKET required}"
 INPUT_PATH="${GCS_BUCKET}/waves/${WAVE_ID}/inputs/${TASK_ID}.json"
 OUTPUT_BASE="${GCS_BUCKET}/waves/${WAVE_ID}/outputs/${TASK_ID}"
 
+# --- Idempotent guard ---
+# A prior exit-0 result means this task already ran (a re-applied Job, or a resume after
+# collect.py timed out). dispatch.py archives failed results before re-dispatching, so anything
+# still here with exit 0 is finished work; do not spend budget on it again.
+if gsutil cat "${OUTPUT_BASE}/result.json" 2>/dev/null | grep -Eq '"exit_code": *0([^0-9]|$)'; then
+  echo "Idempotent skip: ${TASK_ID} already completed (exit 0)"
+  exit 0
+fi
+
 # --- Repo setup ---
 
 REPO_URL="${REPO_URL:-}"

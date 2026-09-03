@@ -4,9 +4,14 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from run_roadmap import (
+    build_branch_lookup,
+    build_wave_tasks,
+    create_roadmap_state,
     extract_files_modified,
     extract_phase_title,
     group_by_declared_waves,
@@ -300,3 +305,67 @@ class TestParsePlanningDir:
         (done / "01-01-PLAN.md").write_text(self._plan(1, ["a.ts"]))
         (done / "SUMMARY.md").write_text("done")
         assert parse_planning_dir(str(planning))["phases"] == []
+
+
+class TestWaveTaskBuilding:
+    def _roadmap(self):
+        return {
+            "roadmap_id": "rm",
+            "phases": [
+                {"id": "phase-41", "title": "A", "waves": [
+                    [{"id": "phase-41-01", "image": "x"}, {"id": "phase-41-02", "image": "x"}],
+                    [{"id": "phase-41-03", "image": "x", "depends_on": ["41-01", "41-02"]}],
+                ]},
+                {"id": "phase-42", "title": "B", "waves": [
+                    [{"id": "phase-42-01", "image": "x", "depends_on": ["phase-41-03"]}],
+                ]},
+            ],
+        }
+
+    def test_cross_wave_deps_become_branch_merges(self):
+        rm = self._roadmap(); state = create_roadmap_state(rm, "gs://b")
+        lookup = build_branch_lookup(rm, state)
+        tasks = build_wave_tasks(rm["phases"][0]["waves"][1], lookup, (0, 1))
+        assert "depends_on" not in tasks[0]
+        assert tasks[0]["inputs"]["merge_branches"] == [
+            "gke-dispatch/rm-phase-41-w0/phase-41-01",
+            "gke-dispatch/rm-phase-41-w0/phase-41-02",
+        ]
+        tasks2 = build_wave_tasks(rm["phases"][1]["waves"][0], lookup, (1, 0))
+        assert tasks2[0]["inputs"]["merge_branches"] == ["gke-dispatch/rm-phase-41-w1/phase-41-03"]
+
+    def test_same_wave_dep_stays_a_dependency(self):
+        wave = [{"id": "a", "image": "x"}, {"id": "b", "image": "x", "depends_on": ["a"]}]
+        tasks = build_wave_tasks(wave, {}, (0, 0))
+        assert tasks[1]["depends_on"] == ["a"]
+        assert "merge_branches" not in tasks[1]["inputs"]
+
+    def test_forward_or_unknown_dependency_rejected(self):
+        rm = self._roadmap(); state = create_roadmap_state(rm, "gs://b")
+        lookup = build_branch_lookup(rm, state)
+        forward = [{"id": "phase-41-01", "image": "x", "depends_on": ["41-03"]}]
+        with pytest.raises(ValueError, match="later wave"):
+            build_wave_tasks(forward, lookup, (0, 0))
+        with pytest.raises(ValueError, match="unknown task"):
+            build_wave_tasks([{"id": "z", "image": "x", "depends_on": ["ghost"]}], lookup, (0, 0))
+
+    def test_nested_inputs_honored_and_limits_pass_through(self):
+        # The roadmap-JSON skeleton nests inputs; the old execute_wave read only top-level keys,
+        # so a JSON written per the docs ran with REPO_URL="" and a fixed 600 s / 5 USD.
+        wave = [{
+            "id": "b-01", "image": "avireddy0/claude-executor:latest", "timeout_seconds": 3600,
+            "retries": 0, "resource_profile": "heavy",
+            "inputs": {"repo_url": "https://github.com/o/r.git", "plan_path": "p.md", "max_budget_usd": "20"},
+        }]
+        t = build_wave_tasks(wave, {}, (0, 0))[0]
+        assert t["timeout_seconds"] == 3600 and t["retries"] == 0 and t["resource_profile"] == "heavy"
+        assert t["inputs"]["repo_url"] == "https://github.com/o/r.git"
+        assert t["inputs"]["plan_path"] == "p.md"
+        assert t["inputs"]["max_budget_usd"] == "20"
+        assert t["inputs"]["repo_branch"] == "main"
+
+    def test_planning_dir_defaults(self):
+        t = build_wave_tasks([{"id": "phase-41-01", "image": "x", "plan_content": "# p", "repo_url": "u"}], {}, (0, 0))[0]
+        assert t["timeout_seconds"] == 1800
+        assert t["inputs"]["max_budget_usd"] == "15"
+        assert t["inputs"]["plan_content"] == "# p"

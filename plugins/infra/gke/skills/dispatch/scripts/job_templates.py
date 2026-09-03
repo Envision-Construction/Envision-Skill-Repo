@@ -51,7 +51,7 @@ def _q(value) -> str:
 
 
 def build_executor_job(task: dict, wave_id: str, namespace: str,
-                       sa: str, bucket: str) -> str:
+                       sa: str, bucket: str, manifest_git_sha: str = "") -> str:
     """Single executor Job YAML for one Claude Code plan task."""
     profile = task.get("resource_profile", "standard")
     resources = _resources(profile)
@@ -59,16 +59,21 @@ def build_executor_job(task: dict, wave_id: str, namespace: str,
     inputs = task.get("inputs", {})
     retries = task.get("retries", 2)
     timeout = task.get("timeout_seconds", 600)
+    git_sha = inputs.get("git_sha") or manifest_git_sha or ""
     is_gpu = "gpu" in resources
     gpu_request = '\n            nvidia.com/gpu: "1"' if is_gpu else ""
     gpu_limit = '\n            nvidia.com/gpu: "1"' if is_gpu else ""
     accelerator = resources.get("accelerator")
     deps = task.get("depends_on") or []
-    if deps:
-        # Poll each dep's result.json on GCS. Exit 0 only when ALL deps have exit_code 0.
-        # Persist each dep's push branch to /shared/dep-branches.txt so the entrypoint can
-        # merge prerequisite work before running (DEP_BRANCHES_FILE).
+    # Branches from earlier waves/phases that run_roadmap.py resolved from cross-wave depends_on.
+    # Those waves already finished, so they are merged without polling.
+    merge_branches = inputs.get("merge_branches") or []
+    if deps or merge_branches:
+        # Poll each same-wave dep's result.json on GCS. Exit 0 only when ALL deps have exit_code 0.
+        # Every branch (pre-resolved + same-wave) lands in /shared/dep-branches.txt, which the
+        # entrypoint merges before the plan runs (DEP_BRANCHES_FILE).
         dep_ids_str = " ".join(deps)
+        seed_lines = "".join(f"          echo \"{b}\" >> /shared/dep-branches.txt\n" for b in merge_branches)
         wait_deps_init = (
             "      - name: wait-deps\n"
             "        image: google/cloud-sdk:slim\n"
@@ -78,6 +83,7 @@ def build_executor_job(task: dict, wave_id: str, namespace: str,
             "          set -e\n"
             f"          DEPS=\"{dep_ids_str}\"\n"
             "          : > /shared/dep-branches.txt\n"
+            f"{seed_lines}"
             "          for dep_id in $DEPS; do\n"
             f"            DEP_RESULT=\"{bucket}/waves/{wave_id}/outputs/$dep_id/result.json\"\n"
             "            echo \"Waiting for dependency: $DEP_RESULT\"\n"
@@ -199,7 +205,7 @@ spec:
         - name: REPO_BRANCH
           value: {_q(inputs.get('repo_branch', 'main'))}
         - name: GIT_SHA
-          value: {_q(inputs.get('git_sha', ''))}
+          value: {_q(git_sha)}
         - name: PLAN_PATH
           value: {_q(inputs.get('plan_path', ''))}
         - name: TASK_CMD
@@ -239,7 +245,8 @@ def build_executor_jobs_yaml(manifest: dict) -> str:
     sa = manifest["config"].get("service_account", "gke-dispatch-worker")
     bucket = manifest["config"]["bucket"].rstrip("/")
 
-    jobs = [build_executor_job(t, wave_id, namespace, sa, bucket) for t in tasks]
+    manifest_git_sha = manifest.get("git_sha") or ""
+    jobs = [build_executor_job(t, wave_id, namespace, sa, bucket, manifest_git_sha) for t in tasks]
     return "---\n".join(jobs)
 
 
@@ -264,6 +271,9 @@ def build_indexed_job_yaml(manifest: dict) -> str:
     profile = tasks[0].get("resource_profile", "standard")
     resources = _resources(profile)
     timeout = max(t.get("timeout_seconds", 600) for t in tasks)
+    # backoffLimitPerIndex: each task retries on its own; a task that exhausts its retries is a
+    # failed index, and maxFailedIndexes == completions means no failure count ever terminates
+    # the siblings. A Job-wide backoffLimit would have killed every running pod on the Nth failure.
     retries = max(t.get("retries", 2) for t in tasks)
 
     # base64 keeps quotes/$ in commands out of the shell's way; decoded in the init container.
@@ -318,7 +328,8 @@ spec:
   completions: {completions}
   parallelism: {parallelism}
   completionMode: Indexed
-  backoffLimit: {retries}
+  backoffLimitPerIndex: {retries}
+  maxFailedIndexes: {completions}
   activeDeadlineSeconds: {timeout + 60}
   ttlSecondsAfterFinished: 3600
   template:
@@ -345,9 +356,9 @@ spec:
           echo '{cmd_map_b64}' | {decode} {pick_cmd} > /shared/task_cmd
           TASK_ID=$(cat /shared/task_id)
           RESULT_PATH="{bucket}/waves/{wave_id}/outputs/$TASK_ID/result.json"
-          if gsutil ls "$RESULT_PATH" > /dev/null 2>&1; then
+          if gsutil cat "$RESULT_PATH" 2>/dev/null | grep -Eq '"exit_code": *0([^0-9]|$)'; then
             echo "SKIP" > /shared/action
-            echo "Task $TASK_ID already completed, skipping"
+            echo "Task $TASK_ID already completed (exit 0), skipping"
           else
             echo "RUN" > /shared/action
           fi

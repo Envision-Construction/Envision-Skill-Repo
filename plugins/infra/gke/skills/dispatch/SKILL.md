@@ -53,7 +53,7 @@ Context missing: `references/cluster-setup.md` (first error entry). Both present
 | Wave rule | one image and one `resource_profile` per wave (one Indexed Job) | mixed profiles fine (one Job per task); never mix with generic tasks |
 | Inputs | anything, lands in `inputs/<task>.json` | `repo_url`, `repo_branch`, `plan_path` or `plan_content`, `max_budget_usd` (default 5) |
 | Output | `stdout.log`, `stderr.log`, `result.json`, files written to `/outputs` → `artifacts/` | same, plus commits pushed to branch `gke-dispatch/<wave_id>/<task_id>`; nothing merges by itself |
-| `depends_on` | ignored | same wave only; blocks until deps succeed, then merges their branches |
+| `depends_on` | ignored | same wave: blocks until the dependency succeeds, then merges its branch; `run_roadmap.py` turns dependencies on earlier waves into branch merges (`inputs.merge_branches`) |
 
 `dispatch.py` rejects a wave that mixes the two kinds, or generic tasks with two images or two
 profiles, before writing anything. Split into separate waves.
@@ -113,7 +113,8 @@ The two task kinds schedule differently:
 | `gpu` | 4 CPU, 16Gi + 1 GPU | L4 pools only | L4 pools only |
 | `gpu_high` | 8 CPU, 64Gi + 1 GPU | `h100-spot-pool` | `h100-spot-pool` |
 
-A non-zero exit marks the task `failed` and the Job retries it up to `retries` times (default 2).
+A non-zero exit marks the task `failed` and it retries up to `retries` times (default 2). Each
+task retries on its own (`backoffLimitPerIndex`): a failing task never terminates its siblings.
 Deterministic checks such as linters should set `retries: 0`; a lint finding is not a transient
 failure. Generic pods carry no GitHub credential: private repos need the executor image (GitHub
 App token) or a token you provision in Secret Manager yourself.
@@ -163,7 +164,13 @@ python3 run_roadmap.py --planning-dir ~/GitHub/Envision-MCP/.planning --auto    
 
 It reads each plan's frontmatter the way gsd-core does: `wave:` decides the wave, plans in one
 wave that share `files_modified:` split into sequential sub-waves, and `files_modified` across
-phases decides which phases may run concurrently. Phases with a `SUMMARY.md` are skipped.
+phases decides which phases may run concurrently. Phases with a `SUMMARY.md` are skipped. A
+plan's `depends_on` naming plans in earlier waves or phases becomes a branch merge: the executor
+fetches each dependency's `gke-dispatch/<wave_id>/<task_id>` branch and merges it before the plan
+runs, so later waves build on earlier work instead of the tree pinned at kickoff. `files_modified`
+overlap only *orders* phases; a plan that must build on a previous phase's code needs
+`depends_on` as well, or it runs on the kickoff tree. Plan tasks default to 1800 s, 15 USD, 2
+retries; a roadmap JSON overrides them per task.
 Planning-dir mode has **no verification gate** (PLAN.md has no verification command) and says so
 at startup; when phases must gate on tests, author a roadmap JSON instead:
 `references/multi-phase-milestone.md`.
@@ -180,13 +187,18 @@ GCS as the audit trail.
 
 ## Retry and resume
 
-- **Re-run `dispatch.py` with the same manifest.** Tasks marked `completed` in the GCS manifest
-  are skipped; `failed` tasks reset to pending and re-dispatch. Inside the pod, a second guard
-  skips any task whose `result.json` already exists.
+- **Re-run `dispatch.py` with the same manifest.** Completed tasks stay completed, whether the
+  GCS manifest or the one you pass says so. Failed tasks in either copy reset to pending. Before
+  applying, the dispatcher reads each pending task's `result.json`: an exit-0 result is adopted as
+  completed (the pod finished after `collect.py` gave up), a failed one is moved to
+  `result.prev-<timestamp>.json` so neither the pod's guard nor `collect.py` mistakes it for the
+  new outcome. `--dry-run` reports what it would adopt or archive and touches nothing.
+- **In-pod guard.** Both templates skip a task whose `result.json` already shows exit 0; the
+  executor entrypoint checks before cloning, so a re-applied Job or a late resume spends no budget.
 - **`collect.py` timed out** with tasks still pending: the pods may still be running. Re-run
-  `collect.py` later with the same manifest.
-- **Roadmap halted**: the `--resume` command is printed at the halt; completed waves and phases
-  skip.
+  `collect.py` later with the same manifest, or re-run `dispatch.py`, which adopts finished results.
+- **Roadmap halted**: the printed `--resume` command (with `--auto` when the run was unattended)
+  skips completed waves and phases.
 - **A wave in the bucket you did not dispatch this session**: `gcloud storage cat
   gs://gke-dispatch-claude-mcp-457317/waves/<wave_id>/manifest.json` is the state.
 
@@ -196,7 +208,7 @@ GCS as the audit trail.
 |---|---|
 | No silently dropped task | every task is in the manifest; `collect.py` marks the wave `partial_failure`/`failed` at timeout instead of reporting success |
 | Output capture | indexed jobs: a `log-shipper` sidecar copies logs, `result.json`, and `/outputs` to GCS; executor jobs: the entrypoint uploads them itself |
-| Idempotent replay | `wave_id` merge in `dispatch.py` plus the in-pod `result.json` check |
+| Idempotent replay | `wave_id` merge in `dispatch.py`, result reconciliation (adopt exit 0, archive failures), and the in-pod exit-0 check in both templates |
 | Atomic results | `result.json` written to `.tmp` then `gsutil mv` |
 | Crash recovery | manifest and roadmap state live in GCS; re-run with the same ids |
 
@@ -229,4 +241,5 @@ Details and the `dispatch_heavy_job` call shape: `references/envision-mcp-integr
   and gsd-core.
 
 Tests: `uv run --with pytest --with pyyaml python -m pytest tests -q` from the skill directory
-(99 tests; pure functions, no cluster access).
+(113 tests; pure functions, no cluster access). The generated Job shapes were validated with
+`kubectl apply --dry-run=server` against envision-compute on 2026-09-03.

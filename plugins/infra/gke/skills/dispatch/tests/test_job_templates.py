@@ -101,6 +101,15 @@ class TestBuildIndexedJobYaml:
         assert doc["spec"]["completionMode"] == "Indexed"
         assert doc["spec"]["completions"] == 2
 
+    def test_failures_isolated_per_index(self):
+        # With a Job-wide backoffLimit, retries: 0 plus one lint finding failed the Job and
+        # terminated the sibling pods. Per-index backoff keeps each task's fate its own.
+        m = _manifest([{"id": "t1", "retries": 0}, {"id": "t2", "retries": 0}, {"id": "t3", "retries": 0}])
+        spec = yaml.safe_load(build_indexed_job_yaml(m))["spec"]
+        assert "backoffLimit" not in spec
+        assert spec["backoffLimitPerIndex"] == 0
+        assert spec["maxFailedIndexes"] == 3
+
     def test_namespace_from_config(self):
         m = _manifest([{"id": "t1"}], namespace="custom-ns")
         result = build_indexed_job_yaml(m)
@@ -130,6 +139,9 @@ class TestBuildIndexedJobYaml:
         doc = yaml.safe_load(result)
         inits = doc["spec"]["template"]["spec"]["initContainers"]
         assert inits[0]["name"] == "idempotent-check"
+        # Skip only a prior SUCCESS; a stale failed result must not short-circuit a retry.
+        assert '"exit_code": *0' in inits[0]["args"][0]
+        assert "gsutil ls" not in inits[0]["args"][0]
 
     def test_skips_completed_tasks(self):
         m = _manifest([
@@ -269,6 +281,26 @@ class TestBuildExecutorJobsYaml:
         assert docs["short"]["spec"]["backoffLimit"] == 0
         assert docs["long"]["spec"]["activeDeadlineSeconds"] == 3660
         assert docs["long"]["spec"]["backoffLimit"] == 3
+
+    def test_merge_branches_seeded_without_polling(self):
+        m = _manifest([{
+            "id": "b", "image": "avireddy0/claude-executor:latest",
+            "inputs": {"merge_branches": ["gke-dispatch/rm-phase-41-w0/phase-41-01"]},
+        }])
+        doc = yaml.safe_load(build_executor_jobs_yaml(m))
+        inits = doc["spec"]["template"]["spec"]["initContainers"]
+        assert inits[0]["name"] == "wait-deps"
+        script = inits[0]["args"][0]
+        assert 'echo "gke-dispatch/rm-phase-41-w0/phase-41-01" >> /shared/dep-branches.txt' in script
+        assert 'DEPS=""' in script  # nothing to poll: the branch's wave already finished
+
+    def test_git_sha_falls_back_to_manifest(self):
+        m = _manifest([{"id": "t1", "image": "avireddy0/claude-executor:latest"}])
+        m["git_sha"] = "9ea71755"
+        doc = yaml.safe_load(build_executor_jobs_yaml(m))
+        executor = next(c for c in doc["spec"]["template"]["spec"]["containers"] if c["name"] == "executor")
+        env_map = {e["name"]: e["value"] for e in executor["env"]}
+        assert env_map["GIT_SHA"] == "9ea71755"
 
     def test_dep_wait_uses_same_wave_branch(self):
         m = _manifest([
