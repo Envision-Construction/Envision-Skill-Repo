@@ -43,4 +43,4 @@ Mitigation: Review and scan skill before deployment; 113 unit tests cover manife
 **Other Properties Related to Output:** [Results persisted to gs://gke-dispatch-claude-mcp-457317/waves/<wave_id>/] <br>
 
 ## Skill Version(s): <br>
-1.1.1 (gke plugin version; upgraded 2026-09-03, eval-loop fixes same day; git SHA assigned at commit) <br>
+1.1.2 (gke plugin version; upgraded 2026-09-03, eval-loop fixes and the Artifact Registry image rebuild + smoke test the same day; git SHA assigned at commit) <br>

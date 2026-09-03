@@ -213,13 +213,13 @@ class TestBuildIndexedJobYaml:
 
 class TestBuildExecutorJobsYaml:
     def test_empty_when_no_pending(self):
-        m = _manifest([{"id": "t1", "status": "completed", "image": "avireddy0/claude-executor:latest"}])
+        m = _manifest([{"id": "t1", "status": "completed", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"}])
         assert build_executor_jobs_yaml(m) == ""
 
     def test_per_task_jobs(self):
         m = _manifest([
-            {"id": "t1", "image": "avireddy0/claude-executor:latest"},
-            {"id": "t2", "image": "avireddy0/claude-executor:latest"},
+            {"id": "t1", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"},
+            {"id": "t2", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"},
         ])
         result = build_executor_jobs_yaml(m)
         docs = list(yaml.safe_load_all(result))
@@ -227,7 +227,7 @@ class TestBuildExecutorJobsYaml:
         assert all(d["kind"] == "Job" for d in docs)
 
     def test_has_secrets_init(self):
-        m = _manifest([{"id": "t1", "image": "avireddy0/claude-executor:latest"}])
+        m = _manifest([{"id": "t1", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"}])
         result = build_executor_jobs_yaml(m)
         doc = yaml.safe_load(result)
         inits = doc["spec"]["template"]["spec"]["initContainers"]
@@ -236,7 +236,7 @@ class TestBuildExecutorJobsYaml:
     def test_env_vars_set(self):
         m = _manifest([{
             "id": "t1",
-            "image": "avireddy0/claude-executor:latest",
+            "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903",
             "inputs": {"repo_url": "https://github.com/test/repo.git", "plan_path": ".planning/PLAN.md"},
         }])
         result = build_executor_jobs_yaml(m)
@@ -252,7 +252,7 @@ class TestBuildExecutorJobsYaml:
 
     def test_budget_from_inputs(self):
         m = _manifest([{
-            "id": "t1", "image": "avireddy0/claude-executor:latest",
+            "id": "t1", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903",
             "inputs": {"max_budget_usd": "12"},
         }])
         doc = yaml.safe_load(build_executor_jobs_yaml(m))
@@ -262,7 +262,7 @@ class TestBuildExecutorJobsYaml:
 
     def test_env_values_with_quotes_stay_valid_yaml(self):
         m = _manifest([{
-            "id": "t1", "image": "avireddy0/claude-executor:latest",
+            "id": "t1", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903",
             "cmd": 'echo "quoted" $VAR',
         }])
         doc = yaml.safe_load(build_executor_jobs_yaml(m))
@@ -273,8 +273,8 @@ class TestBuildExecutorJobsYaml:
     def test_per_task_timeout_and_retries(self):
         # Previously every Job in the wave got max(timeout) and max(retries).
         m = _manifest([
-            {"id": "short", "image": "avireddy0/claude-executor:latest", "timeout_seconds": 300, "retries": 0},
-            {"id": "long", "image": "avireddy0/claude-executor:latest", "timeout_seconds": 3600, "retries": 3},
+            {"id": "short", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903", "timeout_seconds": 300, "retries": 0},
+            {"id": "long", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903", "timeout_seconds": 3600, "retries": 3},
         ])
         docs = {d["metadata"]["labels"]["task-id"]: d for d in yaml.safe_load_all(build_executor_jobs_yaml(m))}
         assert docs["short"]["spec"]["activeDeadlineSeconds"] == 360
@@ -284,7 +284,7 @@ class TestBuildExecutorJobsYaml:
 
     def test_merge_branches_seeded_without_polling(self):
         m = _manifest([{
-            "id": "b", "image": "avireddy0/claude-executor:latest",
+            "id": "b", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903",
             "inputs": {"merge_branches": ["gke-dispatch/rm-phase-41-w0/phase-41-01"]},
         }])
         doc = yaml.safe_load(build_executor_jobs_yaml(m))
@@ -295,7 +295,7 @@ class TestBuildExecutorJobsYaml:
         assert 'DEPS=""' in script  # nothing to poll: the branch's wave already finished
 
     def test_git_sha_falls_back_to_manifest(self):
-        m = _manifest([{"id": "t1", "image": "avireddy0/claude-executor:latest"}])
+        m = _manifest([{"id": "t1", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"}])
         m["git_sha"] = "9ea71755"
         doc = yaml.safe_load(build_executor_jobs_yaml(m))
         executor = next(c for c in doc["spec"]["template"]["spec"]["containers"] if c["name"] == "executor")
@@ -304,8 +304,8 @@ class TestBuildExecutorJobsYaml:
 
     def test_dep_wait_uses_same_wave_branch(self):
         m = _manifest([
-            {"id": "a", "image": "avireddy0/claude-executor:latest"},
-            {"id": "b", "image": "avireddy0/claude-executor:latest", "depends_on": ["a"]},
+            {"id": "a", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"},
+            {"id": "b", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903", "depends_on": ["a"]},
         ])
         m["tasks"][1]["depends_on"] = ["a"]
         docs = {d["metadata"]["labels"]["task-id"]: d for d in yaml.safe_load_all(build_executor_jobs_yaml(m))}
@@ -318,7 +318,7 @@ class TestValidateWaveShape:
     def test_mixed_executor_and_generic_rejected(self):
         with pytest.raises(ValueError, match="Mixed wave"):
             validate_wave_shape([
-                {"id": "a", "image": "avireddy0/claude-executor:latest"},
+                {"id": "a", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"},
                 {"id": "b", "image": "alpine:latest"},
             ])
 
@@ -336,13 +336,13 @@ class TestValidateWaveShape:
     def test_homogeneous_ok(self):
         validate_wave_shape([{"id": "a", "image": "alpine"}, {"id": "b", "image": "alpine"}])
         validate_wave_shape([
-            {"id": "a", "image": "avireddy0/claude-executor:latest", "resource_profile": "light"},
-            {"id": "b", "image": "avireddy0/claude-executor:latest", "resource_profile": "gpu"},
+            {"id": "a", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903", "resource_profile": "light"},
+            {"id": "b", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903", "resource_profile": "gpu"},
         ])
 
     def test_router_raises_on_mixed(self):
         m = _manifest([
-            {"id": "a", "image": "avireddy0/claude-executor:latest"},
+            {"id": "a", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"},
             {"id": "b", "image": "alpine:latest"},
         ])
         with pytest.raises(ValueError):
@@ -351,7 +351,7 @@ class TestValidateWaveShape:
 
 class TestBuildJobYamlRouter:
     def test_routes_to_executor(self):
-        m = _manifest([{"id": "t1", "image": "avireddy0/claude-executor:latest"}])
+        m = _manifest([{"id": "t1", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"}])
         result = build_job_yaml(m)
         docs = list(yaml.safe_load_all(result))
         assert docs[0]["spec"]["template"]["spec"]["initContainers"][0]["name"] == "fetch-secrets"

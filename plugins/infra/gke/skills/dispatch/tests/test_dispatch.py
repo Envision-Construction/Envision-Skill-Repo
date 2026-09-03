@@ -65,7 +65,7 @@ class TestDryRun:
 
     def test_mixed_wave_rejected_before_any_write(self, tmp_path, monkeypatch, capsys):
         path = _write_manifest(tmp_path, [
-            {"id": "a", "cmd": "", "image": "avireddy0/claude-executor:latest"},
+            {"id": "a", "cmd": "", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"},
             {"id": "b", "cmd": "echo", "image": "alpine:3.20"},
         ])
         monkeypatch.setattr(dispatch, "gcs_read_json", lambda p: None)
@@ -152,7 +152,7 @@ class TestRetrySemantics:
         assert dispatch.reconcile_with_results(m, "gs://b", dry_run=True) == {"adopted": [], "archived": ["broke"]}
 
     def test_is_error_result_is_not_adopted(self, monkeypatch):
-        m = normalize("w", [{"id": "t", "cmd": "", "image": "avireddy0/claude-executor:latest"}])
+        m = normalize("w", [{"id": "t", "cmd": "", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"}])
         monkeypatch.setattr(dispatch, "gcs_read_json", lambda p: {"exit_code": 0, "is_error": True})
         monkeypatch.setattr(dispatch, "run", lambda cmd, **k: None)
         assert dispatch.reconcile_with_results(m, "gs://b", dry_run=False)["archived"] == ["t"]
@@ -160,7 +160,7 @@ class TestRetrySemantics:
     def test_unknown_dependency_rejected(self, tmp_path, monkeypatch, capsys):
         # Hand-edited manifests skip normalize_wave.py; the old dispatcher applied them and the
         # pod polled forever for a result that could never appear.
-        path = _write_manifest(tmp_path, [{"id": "a", "cmd": "", "image": "avireddy0/claude-executor:latest"}])
+        path = _write_manifest(tmp_path, [{"id": "a", "cmd": "", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"}])
         m = json.loads(path.read_text()); m["tasks"][0]["depends_on"] = ["plan-32-02"]
         path.write_text(json.dumps(m))
         monkeypatch.setattr(dispatch, "gcs_read_json", lambda p: None)

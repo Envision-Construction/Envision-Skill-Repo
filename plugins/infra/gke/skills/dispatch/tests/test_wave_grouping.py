@@ -293,7 +293,7 @@ class TestParsePlanningDir:
         ]
         assert p1["waves"][1][0]["depends_on"] == ["91.1-01"]
         assert p1["waves"][1][0]["cmd"] == ""
-        assert p1["waves"][1][0]["image"] == "avireddy0/claude-executor:latest"
+        assert p1["waves"][1][0]["image"] == "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903"
         # No verification source in PLAN.md -> honest no-gate, not a fake passing placeholder.
         assert p1["verification"] == {"cmd": None, "required": False}
 
@@ -353,7 +353,7 @@ class TestWaveTaskBuilding:
         # The roadmap-JSON skeleton nests inputs; the old execute_wave read only top-level keys,
         # so a JSON written per the docs ran with REPO_URL="" and a fixed 600 s / 5 USD.
         wave = [{
-            "id": "b-01", "image": "avireddy0/claude-executor:latest", "timeout_seconds": 3600,
+            "id": "b-01", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903", "timeout_seconds": 3600,
             "retries": 0, "resource_profile": "heavy",
             "inputs": {"repo_url": "https://github.com/o/r.git", "plan_path": "p.md", "max_budget_usd": "20"},
         }]

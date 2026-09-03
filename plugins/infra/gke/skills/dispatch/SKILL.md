@@ -27,9 +27,9 @@ run them from that directory or with absolute paths.
 | kubeconfig context | `gke_claude-mcp-457317_us-central1_envision-compute` (scripts pin it; your current context is irrelevant) |
 | Namespace / KSA | `gke-dispatch` / `gke-dispatch-worker` (Workload Identity to `gke-dispatch-sa@…`) |
 | Bucket | `gs://gke-dispatch-claude-mcp-457317/waves/<wave_id>/` (30-day lifecycle) |
-| Executor image | `avireddy0/claude-executor:latest`, last pushed **2026-05-08**; rebuild needed before the next executor wave (`references/executor-image.md`) |
+| Executor image | `us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903` (Artifact Registry; Cloud Build 2026-09-03, smoke-tested the same day). Docker Hub `us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903` is the stale 2026-05-08 build: do not use it |
 | Job TTL | 1 hour after finish; `kubectl get jobs` is usually empty. GCS holds the record. |
-| Usage to date | Three pilot waves on 2026-08-18; no roadmap has run end to end |
+| Usage to date | Three pilot waves on 2026-08-18, two executor smoke waves on 2026-09-03; no roadmap has run end to end |
 
 The only other clusters in the project (`envision-delta-gke`, `envision-cockpit-uswest1`) lack the
 namespace; a hand-typed `kubectl` on the wrong context fails with `namespaces "gke-dispatch" not
@@ -48,7 +48,7 @@ Context missing: `references/cluster-setup.md` (first error entry). Both present
 
 | | Generic container task | Claude executor task |
 |---|---|---|
-| `image` | any image with `sh` (python3 is **not** required) | `avireddy0/claude-executor:*` |
+| `image` | any image with `sh` (python3 is **not** required) | any ref whose name contains `claude-executor` (use the Artifact Registry ref above) |
 | `cmd` | the shell command | `""`; the plan comes from `inputs` |
 | Wave rule | one image and one `resource_profile` per wave (one Indexed Job) | mixed profiles fine (one Job per task); never mix with generic tasks |
 | Inputs | anything, lands in `inputs/<task>.json` | `repo_url`, `repo_branch`, `plan_path` or `plan_content`, `max_budget_usd` (default 5) |
@@ -131,15 +131,15 @@ plan as the prompt. The pod authenticates through Workload Identity: an init con
 Claude OAuth token and the GitHub App key from Secret Manager, so no credentials live in
 manifests or images.
 
-Budget is the bound (`--max-turns` no longer exists in the CLI). A headless session pays roughly a
-dollar of context before working, so `max_budget_usd` below `2` fails on trivial plans; real plans
-want `10` to `25`. `result.json` carries `total_cost_usd`, `num_turns`, and `is_error`; a clean
+Budget is the bound (`--max-turns` no longer exists in the CLI). The container loads no CLAUDE.md,
+rules, or MCP servers, so a one-turn plan cost 0.05 USD in the 2026-09-03 smoke test; the ~1 USD
+context floor of a local headless session does not apply here. Real plans still want `10` to `25`. `result.json` carries `total_cost_usd`, `num_turns`, and `is_error`; a clean
 exit with `is_error: true` is recorded as a failure.
 
 Task shape:
 
 ```json
-{"id": "refactor-auth", "cmd": "", "image": "avireddy0/claude-executor:latest",
+{"id": "refactor-auth", "cmd": "", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903",
  "resource_profile": "standard", "timeout_seconds": 1800,
  "inputs": {"repo_url": "https://github.com/Envision-Construction/Envision-MCP.git",
             "repo_branch": "main", "plan_path": ".planning/phases/03/03-02-PLAN.md",

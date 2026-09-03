@@ -69,7 +69,7 @@ same-wave ids; `dispatch.py` re-validates and rejects anything else.
           {
             "id": "a-01",
             "cmd": "",
-            "image": "avireddy0/claude-executor:latest",
+            "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903",
             "resource_profile": "standard",
             "timeout_seconds": 1800,
             "inputs": {
@@ -89,19 +89,19 @@ same-wave ids; `dispatch.py` re-validates and rejects anything else.
       "title": "Per-service refactors, then the aggregator that depends on them",
       "waves": [
         [
-          {"id": "b-01", "cmd": "", "image": "avireddy0/claude-executor:latest",
+          {"id": "b-01", "cmd": "", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903",
            "resource_profile": "standard", "timeout_seconds": 1800,
            "inputs": {"plan_path": ".planning/phases/B/B-01-PLAN.md",
                       "repo_url": "https://github.com/Envision-Construction/Envision-MCP.git",
                       "repo_branch": "main", "max_budget_usd": "15"},
            "files_modified": ["gateway/integrations/svc_a.py"]},
-          {"id": "b-02", "cmd": "", "image": "avireddy0/claude-executor:latest",
+          {"id": "b-02", "cmd": "", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903",
            "resource_profile": "standard", "timeout_seconds": 1800,
            "inputs": {"plan_path": ".planning/phases/B/B-02-PLAN.md",
                       "repo_url": "https://github.com/Envision-Construction/Envision-MCP.git",
                       "repo_branch": "main", "max_budget_usd": "15"},
            "files_modified": ["gateway/integrations/svc_b.py"]},
-          {"id": "b-03", "cmd": "", "image": "avireddy0/claude-executor:latest",
+          {"id": "b-03", "cmd": "", "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903",
            "resource_profile": "standard", "timeout_seconds": 3600,
            "inputs": {"plan_path": ".planning/phases/B/B-03-PLAN.md",
                       "repo_url": "https://github.com/Envision-Construction/Envision-MCP.git",

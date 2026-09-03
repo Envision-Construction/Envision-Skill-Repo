@@ -1,6 +1,6 @@
 # Claude Executor Image
 
-`avireddy0/claude-executor:latest` runs one GSD plan (or one shell command) per pod as a headless
+`us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903` runs one GSD plan (or one shell command) per pod as a headless
 Claude Code session, then pushes the resulting commits to a branch. Read this before dispatching
 executor tasks, before touching `docker/`, or when an executor pod fails at startup.
 
@@ -13,13 +13,14 @@ executor tasks, before touching `docker/`, or when an executor pod fails at star
   the cluster until the image is rebuilt and pushed.
 - Non-root user `executor` (uid 1001), workdir `/workspace`.
 
-## Image staleness (verified 2026-09-03)
+## Current image (built and smoke-tested 2026-09-03)
 
-Docker Hub `avireddy0/claude-executor:latest` was last pushed **2026-05-08**. It carries the May
-entrypoint (`claude -p --max-turns`) and a May CLI. The entrypoint in this repo now uses
-`--max-budget-usd` and `--output-format json`, so the next executor wave needs a rebuild first.
-Until then, executor tasks run the old contract: no `is_error`/cost fields in `result.json`, and
-`MAX_BUDGET_USD` is ignored.
+`us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903` was built by Cloud Build
+(build `9d6f9bee`, 3m55s) from this `docker/` directory and carries the entrypoint described here.
+The cluster's node service account pulls it through its `artifactregistry.reader` role; no image
+pull secret exists or is needed. Docker Hub `us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903` (pushed 2026-05-08)
+is the previous build: it still passes `--max-turns`, which the CLI rejects, and writes no
+`is_error`/cost fields. Do not use it.
 
 ## Auth flow (what actually runs)
 
@@ -63,10 +64,11 @@ Prompt resolution order: `PLAN_PATH` file in the clone; `plan_content` from `inp
 `plan_path` from that JSON; else `TASK_CMD` (or `cmd` from the JSON) runs via `eval`. With no
 resolvable work the pod exits 1 with `FATAL: No task command resolved`.
 
-Budget floor: a headless session inherits the full system prompt and MCP tool definitions, which
-costs on the order of a dollar before any work happens (measured 2026-06-28, ~76K input tokens).
-Budgets under `2` fail on trivial plans with `subtype: error_max_budget_usd`. Default `5` is the
-minimum sensible; real plans usually want `10`–`25`.
+Budget floor: the container has no CLAUDE.md, rules, or MCP servers, so the per-turn context is
+small; the 2026-09-03 smoke test (one turn, no repo) cost 0.048 USD. The ~1 USD floor measured in
+local headless sessions (2026-06-28, ~76K input tokens of system prompt and tool definitions) does
+not apply. A budget that runs out ends the run with `subtype: error_max_budget_usd`; default `5`
+is fine for smoke tests and small fixes, real plans usually want `10` to `25`.
 
 ## Output contract
 
@@ -91,21 +93,22 @@ conflict is fatal for that task.
 ## Rebuilding
 
 The image is `linux/amd64`. On this Mac `docker` is a shim over Apple `container`, so a local
-build needs `--arch amd64`; Cloud Build avoids the cross-arch step entirely. Neither path was
-exercised in the 2026-09-03 upgrade; treat the commands as the shape, not as verified output.
+build needs `--arch amd64`; Cloud Build avoids the cross-arch step entirely. The Cloud Build path
+produced the current image on 2026-09-03; the local path has not been exercised.
 
 Cloud Build into Artifact Registry (preferred, no local Docker Hub login):
 
 ```bash
 cd ${CLAUDE_PLUGIN_ROOT}/skills/dispatch/docker
-gcloud builds submit --project claude-mcp-457317 \
-  --tag us-central1-docker.pkg.dev/claude-mcp-457317/<ar-repo>/claude-executor:$(date +%Y%m%d) .
+gcloud builds submit --project claude-mcp-457317 --region us-central1 \
+  --tag us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:$(date +%Y%m%d) .
 ```
 
-Then point tasks at the new reference (and update the default in `run_roadmap.py`). Pin by digest
-for any wave that must be reproducible.
+Then point tasks at the new reference: the default in `run_roadmap.py`, the ground-truth row in
+`SKILL.md`, and the examples in `multi-phase-milestone.md`. Pin by digest for any wave that must
+be reproducible.
 
-Local via Apple `container` (needs a Docker Hub login):
+Local via Apple `container` (pushes to Docker Hub; only if Cloud Build is unavailable):
 
 ```bash
 container build --arch amd64 -t avireddy0/claude-executor:$(date +%Y%m%d) docker/
@@ -114,17 +117,24 @@ container image push avireddy0/claude-executor:$(date +%Y%m%d)
 
 ## Smoke test after a rebuild
 
-One task, tiny budget, no repo:
+One task, tiny budget, no repo. The plan body must look like a plan: the entrypoint prefixes every
+prompt with "Execute this plan precisely. Commit each change atomically. Do not skip any step.",
+and on 2026-09-03 a one-line body ("Reply with exactly: EXECUTOR OK. Do nothing else.") came back
+as "No plan was included in your message" with exit 0 and `is_error: false`. The pod, the
+envelope parsing, and `collect.py` all reported success; only `stdout.log` showed the miss.
 
 ```bash
 python3 scripts/normalize_wave.py --wave-id "executor-smoke-$(date +%s)" --framework custom \
   --tasks '[{"id":"smoke","cmd":"","image":"<new image ref>","timeout_seconds":900,
-            "inputs":{"plan_content":"Reply with exactly: EXECUTOR OK. Do nothing else.","max_budget_usd":"3"}}]' \
+            "inputs":{"plan_content":"# Plan: executor smoke test\n\nThere is no repository and nothing to commit.\n\n## Step 1\nReply with exactly this text and nothing else: EXECUTOR OK","max_budget_usd":"3"}}]' \
   --output /tmp/smoke.json
 python3 scripts/dispatch.py --manifest /tmp/smoke.json
 python3 scripts/collect.py --manifest /tmp/smoke.json --timeout 900
 ```
 
-Pass criteria: `result.json` has `is_error: false` and a numeric `total_cost_usd`; `stdout.log`
-contains `EXECUTOR OK`. Expect a few minutes of node scale-up before the pod starts (executor pods
-pin to spot nodes; see `cluster-setup.md`).
+Pass criteria, all three: `result.json` has `is_error: false` and a numeric `total_cost_usd`, AND
+`stdout.log` (Claude's final text; the full envelope is `artifacts/claude.json`) contains
+`EXECUTOR OK`. The first two alone are not proof (see above). Verified 2026-09-03 on the current
+image: `EXECUTOR OK`, 0.021 USD, one turn, 4 s in the pod, 70 s from apply to result with a spot
+node already warm; a cold scale-up adds 2 to 5 minutes (executor pods pin to spot nodes; see
+`cluster-setup.md`).

@@ -143,7 +143,7 @@ def parse_planning_dir(planning_dir: str) -> dict:
                 "files_modified": files_modified,
                 "wave": fm.get("wave"),
                 "depends_on": list(fm.get("depends_on") or []),
-                "image": "avireddy0/claude-executor:latest",
+                "image": "us-central1-docker.pkg.dev/claude-mcp-457317/envision/claude-executor:20260903",
                 "resource_profile": "standard",
                 "repo_url": repo_info.get("repo_url", ""),
                 "repo_branch": repo_info.get("repo_branch", "main"),

@@ -1,7 +1,7 @@
 {
   "name": "gke",
   "displayName": "GKE AI Platform",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "GKE platform for claude-mcp-457317: parallel task-wave dispatch to envision-compute (idempotent, checkpointed, Claude Code executor), cluster provisioning (Terraform/Kueue/vLLM), and agent runtime. Migrated from claude-code-memory global/skills 2026-07-25; dispatch skill upgraded 2026-09-03.",
   "author": {
     "name": "Prometheus Ventures / Envision Construction"
