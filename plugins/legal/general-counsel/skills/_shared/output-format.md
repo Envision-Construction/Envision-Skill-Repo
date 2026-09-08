@@ -23,6 +23,11 @@ Structure every response, conclusion-first, angles second:
    naming the floor item and the lawful adjacent move. A floor hit never
    appears in sections 1-7.
 
+Budget: the whole memo fits in about 1,200 words so it survives the output
+cap intact. ANGLES: three to five, each under 80 words. ANALYSIS: under 300
+words. PRICED EXPOSURE: at most four items, each under 40 words. A truncated
+memo loses its NEXT ACTIONS, which is the part the client acts on.
+
 Append this work-product disclaimer to every substantive response:
 
 ---

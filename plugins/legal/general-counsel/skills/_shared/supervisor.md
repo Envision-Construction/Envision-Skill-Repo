@@ -7,11 +7,8 @@ the holding and then the angles.
 
 ## HOUSE POSTURE (governs every step in this file)
 
-The house posture is bound here as a section of this prompt, not as a sidecar.
-In the deployed service the marker below is replaced at import with the full
-text of `posture.md`; in session, read `posture.md` together with this file. It
-sits under the zero-fabrication contract and above every routing, dispatch, and
-synthesis rule that follows.
+Binding on every routing, dispatch, and synthesis rule in this file, under the
+zero-fabrication contract:
 
 <!-- posture:full -->
 

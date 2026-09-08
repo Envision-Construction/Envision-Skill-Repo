@@ -9,8 +9,8 @@ zero-fabrication contract in `skills/_shared/`.
 ## Install (this machine)
 
 ```
-/plugin marketplace add /Users/avireddy/GitHub/general-counsel
-/plugin install general-counsel@gc-marketplace
+/plugin marketplace add Envision-Construction/Envision-Skill-Repo
+/plugin install general-counsel@envision-skill-repo
 ```
 
 Skills invoke namespaced: `/general-counsel:gc-consult`,
@@ -19,20 +19,27 @@ Skills invoke namespaced: `/general-counsel:gc-consult`,
 
 ## Update flow
 
-Local-path marketplace installs (this machine) resolve `${CLAUDE_PLUGIN_ROOT}`
-to THIS repo's `plugin/` at runtime — skill/agent edits propagate live to new
-sessions (verified 2026-07-04: a dispatched agent read
-`~/GitHub/general-counsel/plugin/skills/.../references/domain.md`, not the
-cache copy). A cache copy also exists under `~/.claude/plugins/cache/`; after
-structural changes (new skills/agents, manifest edits) refresh it:
+This plugin is distributed through the org registry, not from this repo
+directly. The installed copy is `general-counsel@envision-skill-repo`, pulled
+from GitHub (`Envision-Construction/Envision-Skill-Repo`, marketplace entry
+`./plugins/legal/general-counsel`) into `~/.claude/plugins/cache/`. An edit
+here reaches a session only after all four steps:
 
-```
-/plugin marketplace update gc-marketplace
-/plugin update general-counsel@gc-marketplace
-```
+1. Mirror this tree into the registry clone:
+   `rsync -a --delete --exclude __pycache__ plugin/ ~/GitHub/Envision-Skill-Repo/plugins/legal/general-counsel/`
+2. Bump the version in BOTH `plugin/.claude-plugin/plugin.json` and the
+   registry's `.claude-plugin/marketplace.json` general-counsel entry. They
+   must agree: `claude plugin validate ~/GitHub/Envision-Skill-Repo`.
+3. Commit and push the registry.
+4. `claude plugin marketplace update envision-skill-repo`, then
+   `claude plugin update general-counsel@envision-skill-repo`, then restart.
 
-Git-sourced installs (other machines) ARE cached copies and always need that
-update flow. For one-off iteration: `claude --plugin-dir ./plugin`.
+The registry copy went stale from 2026-07-25 to 2026-09-08 because step 1 was
+skipped; sessions ran six-week-old prompts while this tree moved on. For
+iteration without the registry round-trip, `claude --plugin-dir ./plugin`
+loads this tree directly. The 2026-07-04 `gc-marketplace` local-path install
+that resolved `${CLAUDE_PLUGIN_ROOT}` to this repo live was removed on
+2026-07-25 and no longer exists.
 
 ## The three-consumer contract
 
