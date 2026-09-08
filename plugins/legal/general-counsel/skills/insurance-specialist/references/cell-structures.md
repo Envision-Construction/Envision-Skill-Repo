@@ -1,6 +1,20 @@
 # Cell Captive Structures — PCCs, SPCs, SACs, Series Captives
 
-> Evergreen reference for the insurance-specialist skill. Load-bearing figures verified 2026-07-04. For statute currency see references/current-legislation.md.
+> Evergreen reference for the insurance-specialist skill.
+>
+> **Freshness:** class=`legislation` verified=2026-07-04 sources=domicile captive-statute text (official legislature sites, Justia mirrors with their currency year recorded), BMA and CIMA published law, IRS revenue rulings and the Federal Register, court opinion PDFs
+
+`class` selects the threshold from the central table in
+`scripts/check_authority_freshness.py`; the number is not written here so that
+changing it is one edit. Past the threshold this file is a lead, not an
+authority: re-verify the specific fact you need per
+[`../workflows/legislation-refresh.md`](../workflows/legislation-refresh.md),
+label what you cannot verify "ASSUMPTION (unverified)", and record the stale
+header and its date in LIMITATIONS. Bump `verified` only after re-verifying this
+file's own scope. The cross-reference to [`current-legislation.md`](current-legislation.md)
+locates statute currency; it does not transfer that file's freshness to this one.
+Minimum-capital figures and premium-tax rates are periodically amended and are
+re-pulled from the domicile statute at each use, however fresh this header looks.
 
 Decision-support reference for evaluating cell captive structures, rent-a-captive programs, and pooling arrangements. Compliance-risk framing throughout: abuse patterns are documented so structures avoid them. Not legal or tax advice.
 
@@ -74,7 +88,7 @@ A rent-a-captive lets a business get captive-like economics (underwriting profit
 ## 6. Capitalization, fronting, collateral; exiting into a standalone captive
 
 **Capital norms (directional, regulator-negotiated — not statutory constants):**
-- Core capital: US sponsored-captive statutes commonly set core minimums in the low-to-mid six figures (e.g., Vermont-model $250K–$500K range); the regulator can and does require more. Verify the current figure in the domicile statute before quoting one.
+- Core capital: fixed by the domicile's own statute, and the regulator can and does require more than the floor. The only sponsored-captive core minimum verified in this skill's source set is Vermont's: **$100K, funded by the sponsor** (8 V.S.A. § 6004(a)(6), verified 2026-07-04, recorded in [`current-legislation.md`](current-legislation.md)). Do not generalize that figure into a range, and do not attach a range to a named state whose statute has not been pulled. Quote a number only after reading the governing domicile's section text.
 - Cell capital: sized to the cell's business plan — retention, line of business, premium volume. Regulators look for cell assets ≥ a conservative estimate of ultimate retained losses; promoter decks that quote "no capital required" are describing collateral posted to a front, not an absence of capital.
 - Collateral to fronts: LOC or reinsurance trust, typically 100%+ of expected ultimate losses in the cell's layer, adjusted annually with loss development. Funds-withheld structures trade collateral for credit exposure to the front.
 

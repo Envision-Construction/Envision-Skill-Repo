@@ -1,7 +1,7 @@
 {
   "name": "general-counsel",
   "displayName": "General Counsel",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Envision/Prometheus legal intelligence: 9 practice-area specialist skills + agents (CRE, securities, contracts, estate, tax, captive, finreg, IP, litigation), the bundled insurance-specialist forensic suite (captive tax/structures, coverage counsel, statute researcher), and the gc-consult grounded-consult workflow. Zero-fabrication contract: every load-bearing authority verified against a live primary source. Escalates multi-domain grounding-critical consults to the deployed GC service via the legal_consult gateway tool.",
   "author": {
     "name": "Avi Reddy",

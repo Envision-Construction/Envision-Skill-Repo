@@ -50,6 +50,8 @@ update flow. For one-off iteration: `claude --plugin-dir ./plugin`.
    `../skills/` next to privileged `matters/` work product, which is never
    distributed with this plugin.
 
+`_shared/posture.md` (house posture) is a fourth snapshot-gated shared block, beside `zero-fabrication.md`, `output-format.md`, and `supervisor.md`; every prompt surface above inherits it.
+
 ## Consult routing (deterministic)
 
 `gc-consult` is a fixed 4-step pathway: (1) jurisdiction/posture, (2) the

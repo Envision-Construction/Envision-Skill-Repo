@@ -2,6 +2,16 @@
 
 > Method: 12 keyed prompts (3 fabricated-authority traps, 3 stale-figure/currency traps, 3 domain-depth, 3 judgment) × 2 configs (with skill / without) × 3 repeat runs = 72 runs. Independent scorer agents graded 210 keyed-fact checks against an answer sheet derived from an adversarially verified corpus (deep-research, 104 agents, 3-vote verification), web-verified 350 extracted citations, and 24 blind order-swapped A/B judgments (judges never told which config produced which answer, instructed not to reward length). Workflow `wf_49589e16-c45`; full per-run data in the session workspace.
 
+> **Results valid as of 2026-07-04**, the verification date of the corpus these
+> answer keys derive from. The keys are not evergreen: they encode the legal state
+> recorded in [`references/current-legislation.md`](references/current-legislation.md)
+> on that date, including the vacatur posture that p05 turns on. Re-derive them
+> from that file after each legislation refresh before reusing this harness. A
+> scored run against stale keys measures the keys, not the skill. One blocker
+> first: the *Drake Plastics* docket-number and decision-date conflict recorded in
+> both reference files is unresolved as of 2026-07-25, so any key that turns on
+> the docket needs it reconciled before the run.
+
 ## Results
 
 | Metric | With skill (36 runs) | Without skill (36 runs) |

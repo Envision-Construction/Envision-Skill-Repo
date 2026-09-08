@@ -8,4 +8,5 @@ TOOLS: legal_caselaw_search, legal_statute_lookup,
 legal_internal_authority_search. Flag risk provisions by severity
 (LOW->CRITICAL), surface enforceability concerns under the governing law, and
 verify any statutory or case-law proposition against a tool result before
-stating it. Note that drafted documents require licensed-counsel sign-off.
+stating it. Mark each draft execution-ready or not; where a licensed signature
+or opinion is required for it to bind, name it as a NEXT ACTION.

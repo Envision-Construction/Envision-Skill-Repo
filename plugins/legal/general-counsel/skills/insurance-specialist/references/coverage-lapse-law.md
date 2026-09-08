@@ -1,6 +1,23 @@
 # Coverage Lapse & Cancellation-Notice Law
 
-> Evergreen reference for the insurance-specialist skill. Load-bearing figures verified 2026-07-04. For statute currency see references/current-legislation.md.
+> Evergreen reference for the insurance-specialist skill.
+>
+> **Freshness:** class=`deadline-rule` verified=2026-07-04 sources=O.C.G.A. Title 33 text via the Justia 2024 Code mirror with its currency year recorded, the 2025 enrolled session law (SB 35 PDF), Georgia appellate opinions, Ga. Comp. R. and Regs.
+
+`class` selects the threshold from the central table in
+`scripts/check_authority_freshness.py`; the number is not written here so that
+changing it is one edit. Past the threshold this file is a lead, not an
+authority: re-verify the specific fact you need against the governing state's
+current statute text, label what you cannot verify "ASSUMPTION (unverified)", and
+record the stale header and its date in LIMITATIONS. Bump `verified` only after
+re-verifying this file's own scope. The cross-reference to
+[`current-legislation.md`](current-legislation.md) locates statute currency; it
+does not transfer that file's freshness to this one.
+
+Every day count below is a notice or cure period a party will rely on. Pull the
+governing state's current section text the day you compute a date from it: a
+missed cancellation, cure, or tail-election deadline cannot be un-missed, and the
+Georgia counts here do not port to another state.
 
 Scope: how policies terminate, what makes a termination legally effective, and how to forensically reconstruct a lapse. Georgia (O.C.G.A. Title 33) is the worked example; every state has an analogous scheme with different day counts and grounds. This is decision support, not legal advice — for a live dispute, pull the current statute text and controlling case law in the governing state.
 
@@ -68,7 +85,7 @@ Practical consequences: if the notice was short by one day, sent to a stale addr
 
 1. **Premium-finance-company cancellation — the dominant source.** The insured financed the premium (agent-arranged PFA, e.g., IPFS — a finance company, NOT the carrier; see references/premium-finance.md), missed an installment, and the PFC exercised its power of attorney: 10-day cure notice (§ 33-22-13(b)), then cancellation request to the insurer, which the insurer may treat under a **conclusive presumption** of PFC compliance (§ 33-22-13(c)(2)) — the insurer bears no liability even if the PFC botched its notices; the insured's recourse is against the PFC. The insured often learns of the lapse only at claim time. Insurer must still notify mortgagees/government/third parties within 2 business days — § 33-22-13(d).
 2. **Audit-premium nonpayment.** Auditable policies (GL, workers' comp) generate additional premium at audit; nonpayment of the audit bill is premium nonpayment → 10-day cancellation path (§ 33-24-44(d)), or audit-refusal cancellation (§ 33-24-44(d.2)). Contractors with payroll swings are the classic victims.
-3. **Carrier insolvency.** Liquidation order typically cancels all policies by operation of law within a short statutory window (commonly 30 days; state guaranty-association acts govern — confirm the state's window before relying). Guaranty-fund coverage is capped and excludes some lines/claimants. A gap opens between liquidation and replacement placement.
+3. **Carrier insolvency.** Liquidation order typically cancels all policies by operation of law within a statutory window fixed by the governing state's liquidation and guaranty-association acts. **UNVERIFIED as to any day count: none is stated here, deliberately.** No state's act was pulled for this file, and a notice window asserted without a source is the defect this skill exists to prevent. Pull the governing state's act (state guaranty-association acts govern — confirm the state's window before relying). Guaranty-fund coverage is capped and excludes some lines/claimants. A gap opens between liquidation and replacement placement.
 4. Also seen: nonrenewal notice missed by the insured (mail to old address); agent E&O (failure to remit or to place renewal); mid-term cancellation for misrepresentation discovered at claim.
 
 ### Remedies against a bad lapse

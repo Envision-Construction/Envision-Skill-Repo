@@ -1,6 +1,16 @@
 # Current Captive Legislation Snapshot
 
-> As of: 2026-07-04 — methodology: deep-research harness (104 agents, fan-out search → source fetch → 3-vote adversarial verification per claim; only claims surviving verification appear as VERIFIED). Supplemented by same-day specialist passes against primary statute text (labeled [specialist pass]). Full verified-findings JSON archived at `memory/private/atlas-captive-sources/deep_research_legislation_2026_07_04.json`. Coverage gaps are stated explicitly — absence means NOT VERIFIED THIS PASS, never "nothing happened."
+> As of: 2026-07-04 — methodology: deep-research harness (104 agents, fan-out search → source fetch → 3-vote adversarial verification per claim; only claims surviving verification appear as VERIFIED). Supplemented by same-day specialist passes against primary statute text (labeled [specialist pass]). Full verified-findings JSON archived at `memory/private/atlas-captive-sources/deep_research_legislation_2026_07_04.json`. Coverage gaps are stated explicitly — absence means NOT VERIFIED THIS PASS, never "nothing happened." (That archive path is a claude-code-memory location, not a path in this repo; do not go looking for it here. Future refreshes archive inside the matter folder they were run for, per ../workflows/legislation-refresh.md.)
+
+> **Freshness:** class=`legislation` verified=2026-07-04 sources=primary statute and regulation text, Federal Register and Treasury Decisions, IRS Rev. Procs. and guidance, court opinions (the ladder in ../workflows/legislation-refresh.md)
+
+`class` selects the threshold from the central table in
+`scripts/check_authority_freshness.py`; the number is not written here so that
+changing it is one edit. Past the threshold this snapshot is a lead, not an
+authority: re-run [`../workflows/legislation-refresh.md`](../workflows/legislation-refresh.md),
+label what you could not verify "ASSUMPTION (unverified)", and record the stale
+header and its date in LIMITATIONS. Bump `verified` only after re-verifying;
+partial re-verification appends a changelog entry and leaves the date alone.
 
 ## Federal (VERIFIED, 3-0 votes unless noted)
 
@@ -10,7 +20,7 @@
 - Sources: federalregister.gov/documents/2025/01/14/2025-00393; eCFR/Cornell LII reg text.
 
 **Litigation — live three-court split** (a Sixth Circuit merits ruling plausibly lands within 12 months):
-- *Drake Plastics Ltd. Co. v. IRS*, No. 4:25-cv-02570 (S.D. Tex., Rosenthal, J., Apr. 15, 2026): **vacated § 1.6011-10** (listed) for lack of required § 6707A findings; **upheld § 1.6011-11** (TOI); vacatur stayed to May 1, 2026 — stay lapsed, **vacatur operative as of 2026-07-04**; remand leaves Treasury free to re-promulgate with proper findings. (Opinion text verified via FindLaw/Tax Notes.)
+- *Drake Plastics Ltd. Co. v. IRS*, No. 4:25-cv-02570 (S.D. Tex., Rosenthal, J., Apr. 15, 2026): **vacated § 1.6011-10** (listed) for lack of required § 6707A findings; **upheld § 1.6011-11** (TOI); vacatur stayed to May 1, 2026 — stay lapsed, **vacatur operative as of 2026-07-04**; remand leaves Treasury free to re-promulgate with proper findings. (Opinion text verified via FindLaw/Tax Notes.) **CITE CONFLICT, unresolved as of 2026-07-25:** `captive-formation-831b.md` § 4 carries this case as No. H-25-2570 decided Apr. 16, 2026. The docket sheet has not been re-pulled. Both forms may name the same Houston-division docket, but the two decision dates cannot both be right. Pull the docket sheet and reconcile before citing this case in anything filed or served; a case cited two ways with two dates is a cite-check failure.
 - *CIC Services, LLC v. IRS*, No. 3:25-cv-00146 (E.D. Tenn., McDonough, J., Mar. 5, 2026): **upheld T.D. 10029 in full**; CIC's Sixth Circuit appellant brief filed June 11, 2026.
 - *Ryan, LLC v. IRS*, No. 3:25-cv-78 (N.D. Tex.): arbitrary-and-capricious challenge to both designations **proceeded past dismissal** [verified]; trade press dated 2026-07-01 additionally reports a merits ruling upholding § 1.6011-11 [single-source — verify against opinion text before external citation].
 - Practical posture: **assume TOI disclosure (Form 8886/8918) binds**; the nationwide-vs-party scope of the Drake vacatur is a contested remedial question — conservative advisors may treat listed-tier disclosure as prudent even while vacated.
@@ -41,4 +51,5 @@
 ## Re-audit changelog
 
 - 2026-07-04 — First full refresh (deep-research wf_b97d42f0-44a, 104 agents + specialist passes). Federal split documented (Drake vacatur / CIC upheld+appeal / Ryan pending-merits); $2.9M 2026 cap; § 6700 Molnar settlement; NC verified; VT/GA folded from specialist passes; Bermuda 2025 Act; Rev. Proc. 2003-47 mechanics. REFUTED: 5-yr financing-period pin. GAPS: TN/SC/DE/UT, Cayman, premium-finance changes, pending federal bills, settlement-initiative status.
-- 2026-07-04 — stub created with skill; no legal content yet.
+- 2026-07-04: stub created with the skill, no legal content at that point. SUPERSEDED the same day by the full-refresh entry above; do not read this line as the state of the file.
+- 2026-07-25: freshness audit only, no legal re-verification and no content change. Snapshot is 21 days old against a 90-day `legislation` threshold, so it is current and was NOT refreshed; nothing here was re-pulled and the `verified` date was deliberately not bumped. Added the parsable freshness header. Recorded the unresolved Drake Plastics docket/date conflict against `captive-formation-831b.md`. Carried forward for the next refresh, unchanged since 2026-07-04: TN / SC / DE / UT capital minima and amendments, Cayman (CIMA Class B(i) pass was in progress), premium-finance regulatory changes, pending federal 831(b) bills, IRS settlement-initiative status, Tax Court and appellate captive merits decisions in the last 24 months, and the Sixth Circuit posture in CIC Services (appellant brief filed 2026-06-11, a merits ruling plausibly lands inside this snapshot's remaining life).

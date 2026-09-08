@@ -99,7 +99,7 @@
       "source": "./plugins/legal/general-counsel",
       "category": "legal",
       "description": "Legal intelligence: 9 practice-area specialists + insurance suite + gc-consult workflow. Vendored from Envision-Construction/general-counsel (dev upstream).",
-      "version": "1.2.0"
+      "version": "1.3.0"
     }
   ]
 }

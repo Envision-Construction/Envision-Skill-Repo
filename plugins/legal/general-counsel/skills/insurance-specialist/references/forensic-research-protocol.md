@@ -1,6 +1,20 @@
 # Forensic Research Protocol
 
-> Evergreen reference for the insurance-specialist skill. Load-bearing figures verified 2026-07-04. For statute currency see references/current-legislation.md.
+> Evergreen reference for the insurance-specialist skill.
+>
+> **Freshness:** class=`method` verified=2026-07-04 sources=n/a, method only: this file asserts no dated legal fact of its own, and its dated items are locators re-found at use (see the note below)
+
+`class=method` is a positive claim that nothing here goes stale on a clock, so it
+carries no threshold. It is true only because of one rule: **the dated items in
+this file are locators, never load-bearing content.** The URL patterns in § 2 were
+confirmed to resolve on the date shown; if one 404s, re-search rather than
+guessing a sibling (§ 2 says so). The Rev. Proc. numbers named in § 6 are worked
+examples of the procedure, not the figure: § 6's instruction is to locate the
+current annual inflation-adjustment Rev. Proc. and scrape it, which stays correct
+after a new one supersedes the ones named. Anything in this file that starts
+asserting a dated legal fact instead of locating one has left `method`, and the
+class has to change with it. Statute currency lives in
+[`current-legislation.md`](current-legislation.md), which carries its own header.
 
 This file is METHOD. It governs how every other reference in this skill gets researched, verified, and cited. Follow it before asserting any legal, regulatory, or tax fact. This is decision support, not legal or tax advice — the protocol exists so structures can be evaluated against what the law actually says, not what a promoter claims it enables.
 

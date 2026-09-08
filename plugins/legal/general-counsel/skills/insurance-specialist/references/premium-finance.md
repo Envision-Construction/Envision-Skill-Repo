@@ -1,6 +1,24 @@
 # Premium Finance Mechanics — PFAs, POA Cancellation, Unearned Premium, State Acts
 
-> Evergreen reference for the insurance-specialist skill. Load-bearing figures verified 2026-07-04. For statute currency see references/current-legislation.md.
+> Evergreen reference for the insurance-specialist skill.
+>
+> **Freshness:** class=`legislation` verified=2026-07-04 sources=O.C.G.A. Title 33 ch. 22 text via the Justia 2024 Code mirror with its currency year recorded, FindLaw as the second independent source for § 33-22-13, SEC EDGAR and the company site for corporate identity
+
+`class` selects the threshold from the central table in
+`scripts/check_authority_freshness.py`; the number is not written here so that
+changing it is one edit. Past the threshold this file is a lead, not an
+authority: re-verify the specific fact you need against the governing state's
+current statute text, label what you cannot verify "ASSUMPTION (unverified)", and
+record the stale header and its date in LIMITATIONS. Bump `verified` only after
+re-verifying this file's own scope. The cross-reference to
+[`current-legislation.md`](current-legislation.md) locates statute currency; it
+does not transfer that file's freshness to this one.
+
+Two at-use rules override the header. Service-charge caps, delinquency and NSF
+fees, and de minimis refund thresholds are periodically amended: re-pull them
+from the current section text at each use. Cure deadlines and cancellation
+effective dates are computed from the governing state's text pulled that day,
+never from this file; the ten-day count below is Georgia's and does not port.
 
 Decision support for forensic insurance research — not legal or tax advice. Abuse and failure patterns are documented so structures and disputes AVOID them.
 
@@ -58,7 +76,7 @@ Statutory chain (Georgia model — O.C.G.A. § 33-22-13, 2024 Code, amended eff.
 ## 4. Unearned-premium math
 
 - **Pro-rata return**: unearned premium = annual premium × (unexpired days ÷ policy days). Used when the **finance company cancels via POA** — the cancellation is statutorily treated as the insured's own notice, but market practice and most policy forms apply pro-rata to finance-company cancellations; some forms still apply short-rate to any insured-initiated cancellation. **Check the policy's cancellation condition — do not assume.** (UNVERIFIED as a universal rule — confirm per policy form and state.)
-- **Short-rate return**: pro-rata minus a penalty (commonly ~10% of the unearned portion, or a table). Applies to voluntary insured cancellations under many forms.
+- **Short-rate return**: pro-rata minus a penalty set by the policy's own short-rate table or cancellation condition. Applies to voluntary insured cancellations under many forms. (UNVERIFIED as to any typical percentage: no source in this file supports one, so read the penalty off the applicable form rather than carrying a rule-of-thumb figure into a computation.)
 - **Audit-premium interaction**: on auditable lines (GL, WC), the "premium" at inception is a **deposit**. Cancellation triggers a short-term audit; earned premium is recomputed on actual exposure. The audit can **wipe out or invert** the expected unearned return — the finance company may be undersecured and the insured can owe additional premium to the carrier ON TOP of the loan deficiency to the finance company. In a forensic reconstruction, never treat "unearned premium per dec page math" as the actual refund on an audited line; get the cancellation audit.
 - **Who gets what** (Georgia, O.C.G.A. § 33-22-14, 2024 Code, verified https://law.justia.com/codes/georgia/title-33/chapter-22/section-33-22-14/, 2026-07-04):
   - Insurer, once notified of the PFA (§ 33-22-12), must return unearned premiums **to the finance company** for the insured's account; paying anyone else leaves the insurer **directly liable** to the finance company. § 33-22-14(a).
