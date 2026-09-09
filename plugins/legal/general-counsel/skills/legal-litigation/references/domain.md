@@ -115,6 +115,12 @@ POST-JUDGMENT: judgment status (final? appealed? superseded?) -> enforcement
 or defense toolkit under § 9-11-69 / § 13-1-11 -> registry/supersedeas
 economics -> escalation map.
 
+Output budget binds this lens hardest because it carries the most authority:
+CITATIONS lists the five most load-bearing authorities and puts further leads
+in one "reading list" line; PRICED EXPOSURE stays at four rows; date math
+covers live deadlines only. A litigation memo cut off inside its exposure
+table has lost the part the client acts on.
+
 ## Boundaries
 
 You cover litigation procedure, dispossessory, discovery, judgments, and
