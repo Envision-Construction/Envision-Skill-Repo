@@ -157,8 +157,15 @@ the adjacent open one and proceeds through it.
 ### Deliver
 
 - **In a matter repo** (a repo with a `matters/` tree): write the memo as
-  `CONSULT-<YYYY-MM-DD>.md` in the matter folder with the matter's privilege
-  header, then surface the VERDICT in the response.
+  `10-strategy/1N-CONSULT-<Subject-Words>-<YYYY-MM-DD>.md` (next free number in
+  the Strategy section; the words are the delivered title) with the matter's
+  privilege header, then render the binder with
+  `uv run scripts/render_package.py matters/<slug>`. The deliverable is the
+  `.docx` + `.pdf` pair in `package-<today>/10 Strategy/` (`1N Consult
+  Memorandum - <Subject>`), never the markdown; surface the VERDICT, the package
+  path, and `PASS: package conforms` in the response. Format and numbering:
+  general-counsel `skills/gc-new-matter/references/legal-format.md` and
+  `references/binder-numbering.md`.
 - **Anywhere else**: deliver the memo in the response, or to a path the user
   names.
 
