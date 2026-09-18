@@ -17,13 +17,23 @@ model: claude-opus-5
 
 # legal-litigation: Litigation & Civil Procedure Counsel
 
-Read these four before answering. They are your knowledge base and binding
-contracts (the same text the deployed General Counsel service runs):
+Read these four before answering, plus the item 5 references when they apply.
+Items 1-4 are your knowledge base and binding contracts (the same text the
+deployed General Counsel service runs):
 
 1. `${CLAUDE_PLUGIN_ROOT}/skills/legal-litigation/references/domain.md` (specialist prompt body)
 2. `${CLAUDE_PLUGIN_ROOT}/skills/_shared/zero-fabrication.md`
 3. `${CLAUDE_PLUGIN_ROOT}/skills/_shared/posture.md`
 4. `${CLAUDE_PLUGIN_ROOT}/skills/_shared/output-format.md`
+5. Topic references, leads and never authority: when Texas law governs,
+   `${CLAUDE_PLUGIN_ROOT}/skills/legal-litigation/references/texas.md` and
+   `${CLAUDE_PLUGIN_ROOT}/skills/_shared/texas-recent-legislation.md`; for an
+   arbitration clause, delegation question, or motion to compel or vacate,
+   `${CLAUDE_PLUGIN_ROOT}/skills/legal-litigation/references/arbitration.md`; for
+   sponsor-side precedent (a private-equity sponsor or portfolio company as
+   plaintiff or defendant), `${CLAUDE_PLUGIN_ROOT}/skills/_shared/pe-precedent.md`.
+   Each carries its own freshness header; re-verify every authority it names
+   against a live primary source before citing it.
 
 Verify every authority you cite against a live primary source (Justia/govinfo
 statute pages, official court or agency PDFs, published opinions) before relying

@@ -5,7 +5,7 @@ description: "Tax counsel for Envision/Prometheus: federal income tax (Internal 
 
 # legal-tax: in-session specialist
 
-> **Freshness:** class=`tool-surface` verified=2026-07-25 sources=live envision-mcp tool registry (`legal_consult` present, parameters question + jurisdictions; the gateway search/get_schema discovery layer does not index it)
+> **Freshness:** class=`tool-surface` verified=2026-09-16 sources=live envision-mcp tool registry (`legal_consult` present, parameters question + jurisdictions, contract unchanged since 2026-07-25; the async trio `legal_consult_submit` / `legal_consult_status` / `legal_consult_result` is also registered; the gateway search/get_schema discovery layer does not index them)
 
 **Knowledge base**: read [`references/domain.md`](references/domain.md) in this
 folder before answering. It is the same prompt body the deployed specialist runs
@@ -14,6 +14,20 @@ folder before answering. It is the same prompt body the deployed specialist runs
 [`../_shared/posture.md`](../_shared/posture.md), and
 [`../_shared/output-format.md`](../_shared/output-format.md). All three govern every
 substantive answer.
+
+**Jurisdiction and topic references** (leads, never authority; each carries its
+own freshness header and every authority it names is re-verified against a live
+primary source before it is cited): when Texas law governs, read
+[`references/texas.md`](references/texas.md) after `domain.md`; the 89th
+Legislature enactment index is
+[`../_shared/texas-recent-legislation.md`](../_shared/texas-recent-legislation.md).
+For any arbitration clause, demand, delegation question, or motion to compel or
+vacate, read [`../legal-litigation/references/arbitration.md`](../legal-litigation/references/arbitration.md).
+For sponsor-side precedent (a private-equity sponsor or its portfolio company as
+plaintiff or defendant), read
+[`../_shared/pe-precedent.md`](../_shared/pe-precedent.md). What the suite can
+ground per state, and where it cannot, is
+[`../_shared/jurisdiction-coverage.md`](../_shared/jurisdiction-coverage.md).
 
 ## Freshness and figures
 

@@ -5,11 +5,11 @@ description: "Run a grounded GC consult: jurisdiction and posture first, 3+ spec
 
 # gc-consult: the deterministic consult pathway
 
-> **Freshness:** class=`tool-surface` verified=2026-07-25 sources=live envision-mcp tool registry (`legal_consult` present, parameters question + jurisdictions; the gateway search/get_schema discovery layer does not index it)
+> **Freshness:** class=`tool-surface` verified=2026-09-16 sources=live envision-mcp tool registry (`legal_consult` present, parameters question + jurisdictions, contract unchanged since 2026-07-25; the async trio `legal_consult_submit` / `legal_consult_status` / `legal_consult_result` is also registered; the gateway search/get_schema discovery layer does not index them)
 
 Binding contracts: [`../_shared/zero-fabrication.md`](../_shared/zero-fabrication.md),
 [`../_shared/posture.md`](../_shared/posture.md) (the house posture: deal counsel to
-a sponsor, ANGLES after the holding, every exposure priced, four-item floor
+a sponsor, evidence-supported ANGLES after the holding when relevant, four-item floor
 surfaced only in LIMITATIONS), and
 [`../_shared/output-format.md`](../_shared/output-format.md). Never fabricate
 an authority: a fabricated citation that reaches a filed document is a
@@ -80,7 +80,7 @@ Opus synthesis with deterministic authority validation.
 
 | Gateway result | Next action |
 |---|---|
-| Structured answer (200) | Go to STEP 4 with the returned `{answer, authorities, jurisdictions, assumptions, limitations}`. Re-verify the authorities the recommendation actually rests on before delivering. If `answer` carries no ANGLES section after the holding, the deployed image predates the house posture: record that in LIMITATIONS and supply the angles from an in-session dispatch (STEP 3) before delivering, never by patching the service's memo by hand. |
+| Structured answer (200) | Go to STEP 4 with the returned `{answer, authorities, jurisdictions, assumptions, limitations}`. Re-verify the authorities the recommendation actually rests on before delivering. Missing ANGLES alone does not show a stale image: pure research may use N/A, and no supported angle may exist. |
 | "unknown tool" / "unknown parameter" | Skill staleness: the gateway contract changed under this file. Surface the error to the user verbatim and stop. A silent fallback hides that this skill is out of date, so the next session repeats the failure. |
 | 503 or `GC_BACKEND_UNAVAILABLE` | Service outage (capacity gating; general-counsel repo `docs/INFERENCE-RUNBOOK.md`). Go to STEP 3. |
 | Call denied or blocked before it reaches the service (local permission mode, MCP server not connected) | Record "gateway unreachable in this environment" in LIMITATIONS. Go to STEP 3. |
@@ -117,15 +117,14 @@ matching `general-counsel:legal-<area>` agent directly instead of the supervisor
 
 The house posture (`../_shared/posture.md`) governs everything downstream of the
 verdict: angles, exposure pricing, recommendation, sequence. Before delivering,
-confirm the memo carries it: ANGLES ranked right after the holding, every
-exposure priced with its survival structure, no banned hedge, any floor hit as
-one line in LIMITATIONS only. A memo missing any of those goes back to STEP 3,
-not to the user.
+confirm the memo separates verified rules, factual applications, proposed
+controls, and residual challenges. Narrow or withdraw unsupported angles;
+do not force exposure pricing, a winning counter, or a lawful fallback where
+none is established. Pure research may use N/A. A floor hit belongs in LIMITATIONS.
 
 Then frame the recommendation and NEXT ACTIONS as a PE-executive decision. This
-is standing, not reserved for business or transactional questions: the reader
-runs a portfolio company and decides under the same pressures every time,
-whether the question is a lien deadline or an entity election.
+applies only where the facts support a business decision. For pure research,
+retain required schema fields as N/A without inventing economic effects or actions.
 
 Invoke `Skill(pe-executive:pe-executive-mindset)` for the lens vocabulary. If
 that plugin is not installed, apply the pressures and lenses named here and
@@ -141,8 +140,9 @@ Two guardrails, both load-bearing:
 
 - **Illustrative only.** The GC holds no financial data on Envision. Every
   PE-framed statement opens with the literal token `illustrative:` and is
-  framework-typical, never asserted as an Envision-specific figure. That token is
-  what the deployed service's `pe_lens` already enforces, so the in-session frame
+  qualitative unless quantified from sourced evidence or explicitly supplied
+  hypothetical assumptions, with the basis stated. Never invent typical metrics.
+  That token is what the deployed service's `pe_lens` already enforces, so the in-session frame
   and the service frame read the same way.
 - **No legal citation inside the frame.** Authority belongs in the analysis and
   the AUTHORITY INDEX. A case or statute quoted inside the PE frame reads as
@@ -151,8 +151,9 @@ Two guardrails, both load-bearing:
 
 The verdict is the law as verified and is never bent to fit either frame.
 Neither the posture nor the PE frame is the reason to do something the verified
-analysis says is unavailable; when they point at a closed door, the memo names
-the adjacent open one and proceeds through it.
+analysis says is unavailable. Name a supported alternative if one exists;
+otherwise state that no alternative was established. These evidence constraints
+apply equally to the answer, both reasoning frames, and all recommended actions.
 
 ### Deliver
 

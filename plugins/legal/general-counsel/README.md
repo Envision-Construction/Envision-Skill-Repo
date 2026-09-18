@@ -59,6 +59,35 @@ that resolved `${CLAUDE_PLUGIN_ROOT}` to this repo live was removed on
 
 `_shared/posture.md` (house posture) is a fourth snapshot-gated shared block, beside `zero-fabrication.md`, `output-format.md`, and `supervisor.md`; every prompt surface above inherits it.
 
+## Jurisdiction and topic references (2026-09-16)
+
+Beside each `references/domain.md` (a production prompt body) the plugin now
+carries verified snapshots that agents and skills read at runtime and the
+service loader never touches:
+
+- `legal-<area>/references/texas.md` (all nine areas): Texas law for that
+  practice area, each claim with a pinpoint cite, primary-source URL, verbatim
+  quote, and a `[VERIFIED]` / `[SUPERSEDED]` / `[UNVERIFIED-CURRENCY]` label
+  from a two-lens adversarial pass (cite accuracy, currency).
+- `legal-litigation/references/arbitration.md`: FAA and Supreme Court doctrine,
+  the Texas Arbitration Act and Texas Supreme Court line, the arbitration acts
+  of the other covered states, and the sponsor-side overlay (LPA and LLC
+  clauses, expert determination versus arbitration). legal-contracts reads it too.
+- `_shared/pe-precedent.md`: benchmark cases and statutes where a private-equity
+  sponsor or portfolio company was plaintiff or defendant (Delaware, federal,
+  Texas).
+- `_shared/texas-recent-legislation.md`: the 89th Legislature (2025) enactment
+  index and the November 2025 constitutional amendments, tagged by area.
+- `_shared/jurisdiction-coverage.md`: per-state matrix of what the suite can
+  ground (statute text tool, bill tool, weekly cron, doctrine file).
+
+Every one carries its own freshness header (`docs/FRESHNESS-DESIGN.md`) and is a
+lead, never an authority: an authority it names is re-verified against a live
+primary source before it is cited, indexed figures and deadline day counts are
+never quoted from it, and no controlling date is computed from it. The deployed
+service reaches the same Texas law live through `legal_statute_lookup`
+(jurisdiction `TX`, a cite naming the code) and `legal_state_legislation`.
+
 ## Consult routing (deterministic)
 
 `gc-consult` is a fixed 4-step pathway: (1) jurisdiction/posture, (2) the
